@@ -112,9 +112,14 @@
     modalCategoryBadge: $('#modal-category-badge'),
     modalTitle: $('#modal-title'),
     modalImage: $('#modal-image'),
+    modalCaptionText: $('#modal-caption-text'),
+    modalCaptionTag: $('#modal-caption-tag'),
     modalClipsContainer: $('#modal-clips-container'),
     modalClipsCount: $('#modal-clips-count'),
     modalClipsStrip: $('#modal-clips-strip'),
+    btnClipPrev: $('#btn-clip-prev'),
+    btnClipPlay: $('#btn-clip-play'),
+    btnClipNext: $('#btn-clip-next'),
     modalSummary: $('#modal-summary'),
     modalCamera: $('#modal-camera'),
     modalTimestamp: $('#modal-timestamp'),
@@ -122,7 +127,9 @@
     modalLatency: $('#modal-latency'),
     modalTracks: $('#modal-tracks'),
     copyEventBtn: $('#copy-event'),
-    queryLink: $('#query-link')
+    queryLink: $('#query-link'),
+    hudVlmBanner: $('#hud-vlm-banner'),
+    hudVlmBannerText: $('#hud-vlm-banner-text')
   };
 
   // ============ UTILITIES ============
@@ -305,6 +312,12 @@
             hudAiPill.classList.add('hud-pill--vlm-busy');
             hudAiPill.classList.remove('hud-pill--ai-active');
           }
+          if (els.hudVlmBanner) {
+            els.hudVlmBanner.style.display = 'block';
+            if (els.hudVlmBannerText) {
+              els.hudVlmBannerText.textContent = `⚡ VLM ANALYZING [${hint}]: 4-Frame Clip Buffer → Qwen3-VL:8B`;
+            }
+          }
         } else {
           const tracks = cam.active_tracks || 0;
           if (els.statProcessing) {
@@ -315,6 +328,9 @@
           if (hudAiPill) {
             hudAiPill.classList.remove('hud-pill--vlm-busy');
             hudAiPill.classList.add('hud-pill--ai-active');
+          }
+          if (els.hudVlmBanner) {
+            els.hudVlmBanner.style.display = 'none';
           }
         }
       } else if (cam && !cam.is_active) {
@@ -327,6 +343,9 @@
         if (hudAiPill) {
           hudAiPill.classList.remove('hud-pill--vlm-busy');
           hudAiPill.classList.remove('hud-pill--ai-active');
+        }
+        if (els.hudVlmBanner) {
+          els.hudVlmBanner.style.display = 'none';
         }
       }
     } catch (err) {}
@@ -965,7 +984,40 @@
     });
   }
 
-  // ============ MODAL INSPECTION ============
+  // ============ MODAL INSPECTION & TEMPORAL CLIP PLAYER ============
+  let modalClipPlayerTimer = null;
+  let modalActiveFrames = [];
+  let modalActiveFrameIndex = 0;
+
+  function selectModalFrame(idx) {
+    if (!modalActiveFrames.length || idx < 0 || idx >= modalActiveFrames.length) return;
+    modalActiveFrameIndex = idx;
+    const item = modalActiveFrames[idx];
+    els.modalImage.src = item.src;
+    if (els.modalCaptionText) els.modalCaptionText.textContent = item.label;
+    if (els.modalCaptionTag) {
+      els.modalCaptionTag.textContent = item.isKeyframe ? 'KEYFRAME ★' : `FRAME #${idx + 1}`;
+      els.modalCaptionTag.style.background = item.isKeyframe ? 'var(--accent-rose)' : 'rgba(0,0,0,0.8)';
+    }
+
+    // Highlight active thumbnail in strip
+    if (els.modalClipsStrip) {
+      const thumbs = els.modalClipsStrip.querySelectorAll('.clip-thumb-wrap');
+      thumbs.forEach((t, i) => {
+        if (i === idx) t.classList.add('active');
+        else t.classList.remove('active');
+      });
+    }
+  }
+
+  function stopModalClipPlayer() {
+    if (modalClipPlayerTimer) {
+      clearInterval(modalClipPlayerTimer);
+      modalClipPlayerTimer = null;
+      if (els.btnClipPlay) els.btnClipPlay.textContent = '▶ Play Clip';
+    }
+  }
+
   function openModal(eventId) {
     const ev = currentEvents.find(e => e.id === eventId);
     if (!ev) return;
@@ -978,8 +1030,6 @@
     els.modalCategoryBadge.className = `badge ${meta.badgeClass} ${isWeapon ? 'badge--weapon' : ''}`;
     els.modalCategoryBadge.textContent = isWeapon ? `[WEAPON] ${meta.label}` : meta.label;
     els.modalTitle.textContent = `Incident Record #${ev.id}`;
-    els.modalImage.src = keyframeSrc;
-    els.modalImage.alt = `Keyframe for ${meta.label} #${ev.id}`;
     els.modalSummary.textContent = ev.summary;
     els.modalCamera.textContent = ev.camera_id;
     els.modalTimestamp.textContent = formatTimestamp(ev.timestamp);
@@ -990,6 +1040,16 @@
       ? ev.track_ids.map(id => `<span class="track-chip">Target #${id}</span>`).join(' ')
       : '<span style="color:var(--text-dim)">None detected</span>';
 
+    stopModalClipPlayer();
+    const keyframeItem = {
+      src: keyframeSrc,
+      label: 'Primary Keyframe (Trigger moment sent to Qwen3-VL:8B for visual analysis)',
+      isKeyframe: true
+    };
+    modalActiveFrames = [keyframeItem];
+    modalActiveFrameIndex = 0;
+    selectModalFrame(0);
+
     // Fetch and display multi-frame temporal clip sequence
     if (els.modalClipsContainer && els.modalClipsStrip) {
       els.modalClipsContainer.style.display = 'none';
@@ -999,19 +1059,38 @@
         .then(data => {
           if (data && data.frames && data.frames.length > 0) {
             els.modalClipsContainer.style.display = 'block';
-            els.modalClipsCount.textContent = `${data.count} Frames Captured`;
-            els.modalClipsStrip.innerHTML = data.frames.map((fPath, idx) => `
-              <div class="clip-thumb-wrap" style="flex-shrink:0; width:84px; height:52px; border-radius:3px; overflow:hidden; border:1px solid var(--border-default); cursor:pointer;" title="Click to view Frame ${idx+1}">
-                <img src="${fPath}" style="width:100%; height:100%; object-fit:cover;" alt="Sequence frame ${idx+1}" onclick="document.getElementById('modal-image').src='${fPath}'">
+            els.modalClipsCount.textContent = `${data.count} Frames Buffer + Keyframe`;
+
+            modalActiveFrames = data.frames.map((fPath, idx) => ({
+              src: fPath,
+              label: `Temporal Frame ${idx + 1} of ${data.count} (Pre-incident context buffer)`,
+              isKeyframe: false
+            }));
+            modalActiveFrames.push(keyframeItem);
+            modalActiveFrameIndex = modalActiveFrames.length - 1; // Default to keyframe
+
+            els.modalClipsStrip.innerHTML = modalActiveFrames.map((f, idx) => `
+              <div class="clip-thumb-wrap ${idx === modalActiveFrameIndex ? 'active' : ''}" data-idx="${idx}" title="${escapeHtml(f.label)}">
+                <img src="${f.src}" style="width:100%; height:100%; object-fit:cover;" alt="Clip frame ${idx+1}">
+                <span class="clip-thumb-tag">${f.isKeyframe ? 'KEY ★' : `#${idx+1}`}</span>
               </div>
             `).join('');
+
+            // Click on thumbnail to view that exact frame
+            els.modalClipsStrip.querySelectorAll('.clip-thumb-wrap').forEach(wrap => {
+              wrap.addEventListener('click', () => {
+                stopModalClipPlayer();
+                selectModalFrame(Number(wrap.dataset.idx));
+              });
+            });
+
+            selectModalFrame(modalActiveFrameIndex);
           }
         })
         .catch(() => {});
     }
 
     els.queryLink.href = `chat.html?q=${encodeURIComponent(`Provide full analysis of incident #${ev.id} on ${ev.camera_id}`)}`;
-
     els.copyEventBtn.onclick = () => copyToClipboard(JSON.stringify(ev, null, 2), els.copyEventBtn, 'Copy JSON');
 
     els.modal.showModal();
@@ -1019,6 +1098,7 @@
   }
 
   function closeModal() {
+    stopModalClipPlayer();
     els.modal.close();
     document.body.style.overflow = '';
   }
@@ -1132,6 +1212,38 @@
       els.quickWebcamBtn.addEventListener('click', () => {
         els.sourceInput.value = '0';
         startSource('0');
+      });
+    }
+
+    // Temporal Clip Sequence Player controls
+    if (els.btnClipPrev) {
+      els.btnClipPrev.addEventListener('click', () => {
+        stopModalClipPlayer();
+        if (!modalActiveFrames.length) return;
+        const nextIdx = (modalActiveFrameIndex - 1 + modalActiveFrames.length) % modalActiveFrames.length;
+        selectModalFrame(nextIdx);
+      });
+    }
+    if (els.btnClipNext) {
+      els.btnClipNext.addEventListener('click', () => {
+        stopModalClipPlayer();
+        if (!modalActiveFrames.length) return;
+        const nextIdx = (modalActiveFrameIndex + 1) % modalActiveFrames.length;
+        selectModalFrame(nextIdx);
+      });
+    }
+    if (els.btnClipPlay) {
+      els.btnClipPlay.addEventListener('click', () => {
+        if (!modalActiveFrames.length) return;
+        if (modalClipPlayerTimer) {
+          stopModalClipPlayer();
+        } else {
+          els.btnClipPlay.textContent = '⏸ Pause';
+          modalClipPlayerTimer = setInterval(() => {
+            const nextIdx = (modalActiveFrameIndex + 1) % modalActiveFrames.length;
+            selectModalFrame(nextIdx);
+          }, 350);
+        }
       });
     }
 

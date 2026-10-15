@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=IBM+Plex+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=1.2.0">
 </head>
 <body>
   <!-- Top Navigation Bar -->
@@ -165,6 +165,14 @@
           <div class="stream-offline-overlay" id="stream-fallback" aria-hidden="true">
             <div class="spinner"></div>
             <span class="stream-offline-text">Awaiting Video Stream Ingestion…</span>
+          </div>
+
+          <!-- Real-Time AI Inference Banner -->
+          <div id="hud-vlm-banner" class="hud-vlm-banner" style="display:none;" aria-live="assertive">
+            <div class="vlm-banner-inner">
+              <span class="vlm-radar-pulse"></span>
+              <span id="hud-vlm-banner-text">VLM ANALYZING: 4-Frame Temporal Clip Buffer → Qwen3-VL:8B</span>
+            </div>
           </div>
 
           <!-- Surveillance HUD -->
@@ -373,13 +381,24 @@
       <div class="modal-body">
         <figure class="modal-image-wrapper">
           <img id="modal-image" src="" alt="Event keyframe visualization">
+          <div id="modal-frame-caption" class="modal-frame-caption">
+            <span id="modal-caption-text">Primary Keyframe Analyzed by Qwen3-VL:8B</span>
+            <span id="modal-caption-tag" class="clip-thumb-tag" style="position:static;">KEYFRAME</span>
+          </div>
         </figure>
 
-        <div id="modal-clips-container" style="display:none; margin: 8px 0 14px 0;">
-          <span class="detail-label" style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.75rem;">
-            <span>Temporal Evidence Sequence (Clips)</span>
-            <span id="modal-clips-count" style="font-family:var(--font-mono); color:var(--accent-cyan); font-size:0.7rem;"></span>
-          </span>
+        <div id="modal-clips-container" style="display:none; margin: 12px 0 16px 0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <span class="detail-label" style="font-size:0.75rem;">
+              <span>Temporal Clip Buffer Analyzed by AI</span>
+              <span id="modal-clips-count" style="font-family:var(--font-mono); color:var(--accent-cyan); font-size:0.7rem; margin-left:8px;"></span>
+            </span>
+            <div class="clip-player-controls" style="display:flex; gap:6px;">
+              <button id="btn-clip-prev" class="control-btn" style="padding:2px 8px; font-size:0.7rem;" title="Previous Frame">◀ Prev</button>
+              <button id="btn-clip-play" class="control-btn" style="padding:2px 8px; font-size:0.7rem; color:var(--accent-cyan);" title="Play through captured temporal clip">▶ Play Clip</button>
+              <button id="btn-clip-next" class="control-btn" style="padding:2px 8px; font-size:0.7rem;" title="Next Frame">Next ▶</button>
+            </div>
+          </div>
           <div id="modal-clips-strip" style="display:flex; gap:8px; overflow-x:auto; padding-bottom:6px;"></div>
         </div>
 
@@ -501,6 +520,6 @@
   <!-- Toast Notifications Container -->
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
-  <script type="module" src="dashboard.js"></script>
+  <script type="module" src="dashboard.js?v=1.2.0"></script>
 </body>
 </html>

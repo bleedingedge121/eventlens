@@ -141,25 +141,17 @@ class VLMClient:
 
         try:
             prompt = (
-                f"You are a surveillance security AI analyzing CCTV frames from camera {camera_id}.\n"
-                f"The rule engine flagged a potential '{category_hint}' event based on motion patterns.\n\n"
-                "Look at the image(s) carefully. Describe EXACTLY what you see happening:\n"
-                "- How many people are visible?\n"
-                "- What are they doing? (walking, running, lying down, struggling, standing still)\n"
-                "- Is there any physical contact, violence, or someone on the ground?\n"
-                "- Are there any weapons (guns, knives, objects being swung)?\n"
-                "- Is the scene normal activity or genuinely concerning?\n\n"
-                "Classify into EXACTLY one category:\n"
-                "- 'person_down': Someone lying on the ground, collapsed, fallen, or incapacitated\n"
-                "- 'fighting': Active physical struggle, punching, kicking, shoving between 2+ people\n"
-                "- 'suspicious_activity': Someone brandishing a weapon, loitering in restricted area, or acting threateningly\n"
-                "- 'tailgating': Two people passing through a door/gate together where only one should\n"
-                "- 'crowd_incident': Dangerously large crowd packing, stampede, or crush risk\n"
-                "- 'none': Normal, routine activity — people walking, talking, sitting normally\n\n"
-                "CRITICAL: Be honest. If this looks like NORMAL activity (people just walking, sitting, or standing near each other), classify as 'none'.\n"
-                "If a weapon is visible, mention '[WEAPON DETECTED]' in summary.\n\n"
-                "Respond ONLY with valid JSON:\n"
-                '{"category": "category_name", "confidence": 0.85, "summary": "2-3 factual sentences describing what you see in the scene."}'
+                f"You are a surveillance security AI analyzing CCTV camera {camera_id}.\n"
+                f"The motion tracker flagged potential '{category_hint}'.\n"
+                "Examine the image carefully. Identify what is happening.\n"
+                "Respond ONLY with a JSON object in this format:\n"
+                '{"category": "person_down"|"fighting"|"suspicious_activity"|"tailgating"|"crowd_incident"|"none", '
+                '"confidence": 0.85, '
+                '"summary": "2 factual sentences describing what you observe in the scene."}\n'
+                "Categories: person_down (collapsed/prone), fighting (altercation/violence), "
+                "suspicious_activity (weapon/loitering/trespass), tailgating (unauthorized entry), crowd_incident (overcrowded), "
+                "none (normal routine activity). If a weapon is visible, include '[WEAPON DETECTED]' in summary.\n"
+                "Output JSON now:"
             )
 
             model = self._resolve_model()
@@ -213,7 +205,7 @@ class VLMClient:
             "stream": False,
             "options": {
                 "temperature": 0.1,
-                "num_predict": 400,  # Ensure complete reasoning and crisp summary without timeout
+                "num_predict": 700,  # Allow sufficient tokens for reasoning completion + JSON output
             },
         }
 
@@ -229,10 +221,14 @@ class VLMClient:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
                 resp_text = body.get("response", "").strip()
+                if resp_text:
+                    return resp_text
                 # If reasoning model stopped before response field, fall back to thinking text
-                if not resp_text and body.get("thinking"):
-                    return body.get("thinking", "").strip()
-                return resp_text
+                thinking = body.get("thinking", "").strip()
+                if thinking:
+                    logger.info(f"[VLM] Response empty, checking thinking field ({len(thinking)} chars)")
+                    return thinking
+                return ""
 
     def _prepare_images(self, frames: List[Any]) -> List[str]:
         b64_list = []

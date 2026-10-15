@@ -646,6 +646,117 @@ body::before {
   to { border-color: rgba(245, 158, 11, 0.95); box-shadow: 0 0 14px rgba(245, 158, 11, 0.5); }
 }
 
+/* Real-Time Live VLM Thinking Banner */
+.hud-vlm-banner {
+  position: absolute;
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  pointer-events: none;
+  animation: fadeInDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.vlm-banner-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(245, 158, 11, 0.7);
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.35);
+  backdrop-filter: blur(8px);
+  padding: 6px 16px;
+  border-radius: var(--radius-pill);
+  color: #fef3c7;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.vlm-radar-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 10px #f59e0b;
+  animation: pulse-ring 1s infinite;
+}
+
+/* Event Feed Clip Sequence Badges */
+.clip-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: var(--accent-cyan);
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+}
+.keyframe-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  color: #c084fc;
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+}
+
+/* Modal Frame Caption & Clip Strip Player */
+.modal-frame-caption {
+  margin-top: 6px;
+  padding: 4px 10px;
+  background: rgba(15, 23, 42, 0.85);
+  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--accent-cyan);
+  border-left: 3px solid var(--accent-cyan);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.clip-thumb-wrap {
+  flex-shrink: 0;
+  width: 88px;
+  height: 56px;
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  cursor: pointer;
+  position: relative;
+  transition: all var(--transition-fast);
+}
+.clip-thumb-wrap:hover {
+  border-color: var(--accent-cyan);
+  transform: translateY(-2px);
+}
+.clip-thumb-wrap.active {
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.5) !important;
+}
+.clip-thumb-tag {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #e2e8f0;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translate(-50%, -10px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
 .viewport-toolbar {
   position: absolute;
   top: var(--space-3);
