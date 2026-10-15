@@ -933,6 +933,29 @@ body::before {
   color: #38bdf8;
   border-color: var(--accent-cyan-strong);
 }
+.badge--weapon {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.85);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+  animation: pulse-weapon 1.4s ease-in-out infinite alternate;
+}
+@keyframes pulse-weapon {
+  from { border-color: rgba(239, 68, 68, 0.5); box-shadow: 0 0 4px rgba(239, 68, 68, 0.2); }
+  to { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 12px rgba(239, 68, 68, 0.65); }
+}
+.weapon-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #ef4444;
+  box-shadow: 0 0 6px #ef4444;
+}
+.event-item--weapon {
+  border-left: 3px solid #ef4444 !important;
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.08) 0%, transparent 60%);
+}
 
 .event-time {
   font-size: 0.7rem;

@@ -1,0 +1,187 @@
+[
+  {
+    "file_name": "1.mp4",
+    "file_path": "D:\\ClaudeCode\\HackHive\\dataset\\1.mp4",
+    "resolution": "854x480",
+    "total_frames": 262,
+    "processed_frames": 262,
+    "native_fps": 30.0,
+    "duration_sec": 8.73,
+    "wall_time_sec": 2.77,
+    "inference_fps": 94.6,
+    "speedup_vs_realtime": 3.15,
+    "avg_persons": 4.0,
+    "max_persons": 13,
+    "unique_track_ids_count": 40,
+    "triggered_events_count": 4,
+    "triggered_events": [
+      {
+        "frame": 1,
+        "video_time_sec": 0.03,
+        "category": "crowd_incident",
+        "track_ids": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13
+        ]
+      },
+      {
+        "frame": 58,
+        "video_time_sec": 1.93,
+        "category": "person_down",
+        "track_ids": [
+          8
+        ]
+      },
+      {
+        "frame": 65,
+        "video_time_sec": 2.17,
+        "category": "tailgating",
+        "track_ids": [
+          9,
+          5
+        ]
+      },
+      {
+        "frame": 123,
+        "video_time_sec": 4.1,
+        "category": "fighting",
+        "track_ids": [
+          8,
+          35
+        ]
+      }
+    ]
+  },
+  {
+    "file_name": "WhatsApp Video 2026-10-16 at 1.29.28 AM.mp4",
+    "file_path": "D:\\ClaudeCode\\HackHive\\dataset\\WhatsApp Video 2026-10-16 at 1.29.28 AM.mp4",
+    "resolution": "854x480",
+    "total_frames": 154,
+    "processed_frames": 154,
+    "native_fps": 30.0,
+    "duration_sec": 5.13,
+    "wall_time_sec": 1.51,
+    "inference_fps": 102.1,
+    "speedup_vs_realtime": 3.4,
+    "avg_persons": 2.0,
+    "max_persons": 5,
+    "unique_track_ids_count": 9,
+    "triggered_events_count": 1,
+    "triggered_events": [
+      {
+        "frame": 83,
+        "video_time_sec": 2.77,
+        "category": "person_down",
+        "track_ids": [
+          11
+        ]
+      }
+    ]
+  },
+  {
+    "file_name": "WhatsApp Video 2026-10-16 at 1.29.33 AM.mp4",
+    "file_path": "D:\\ClaudeCode\\HackHive\\dataset\\WhatsApp Video 2026-10-16 at 1.29.33 AM.mp4",
+    "resolution": "854x480",
+    "total_frames": 291,
+    "processed_frames": 291,
+    "native_fps": 30.0,
+    "duration_sec": 9.7,
+    "wall_time_sec": 3.9,
+    "inference_fps": 74.5,
+    "speedup_vs_realtime": 2.48,
+    "avg_persons": 1.2,
+    "max_persons": 2,
+    "unique_track_ids_count": 4,
+    "triggered_events_count": 2,
+    "triggered_events": [
+      {
+        "frame": 49,
+        "video_time_sec": 1.63,
+        "category": "person_down",
+        "track_ids": [
+          1
+        ]
+      },
+      {
+        "frame": 290,
+        "video_time_sec": 9.67,
+        "category": "person_down",
+        "track_ids": [
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "file_name": "WhatsApp Video 2026-10-16 at 1.29.34 AM.mp4",
+    "file_path": "D:\\ClaudeCode\\HackHive\\dataset\\WhatsApp Video 2026-10-16 at 1.29.34 AM.mp4",
+    "resolution": "854x480",
+    "total_frames": 193,
+    "processed_frames": 193,
+    "native_fps": 30.0,
+    "duration_sec": 6.43,
+    "wall_time_sec": 2.13,
+    "inference_fps": 90.7,
+    "speedup_vs_realtime": 3.02,
+    "avg_persons": 10.1,
+    "max_persons": 15,
+    "unique_track_ids_count": 63,
+    "triggered_events_count": 4,
+    "triggered_events": [
+      {
+        "frame": 1,
+        "video_time_sec": 0.03,
+        "category": "crowd_incident",
+        "track_ids": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      },
+      {
+        "frame": 3,
+        "video_time_sec": 0.1,
+        "category": "fighting",
+        "track_ids": [
+          3,
+          9
+        ]
+      },
+      {
+        "frame": 27,
+        "video_time_sec": 0.9,
+        "category": "person_down",
+        "track_ids": [
+          4
+        ]
+      },
+      {
+        "frame": 183,
+        "video_time_sec": 6.1,
+        "category": "suspicious_activity",
+        "track_ids": [
+          1
+        ]
+      }
+    ]
+  }
+]

@@ -6,7 +6,8 @@
   let currentCamera = 'cam1';
   let currentCategory = '';
   let searchQuery = '';
-  let zonesVisible = true;
+  let minConfidence = 0.5;
+  let zonesVisible = false;
   let audioEnabled = true;
   let lastEventId = 0;
   let currentEvents = [];
@@ -52,6 +53,7 @@
     statProcessing: $('#stat-processing'),
 
     cameraSelect: $('#camera-select'),
+    quickWebcamBtn: $('#btn-quick-webcam'),
     zonesToggle: $('#zones-toggle'),
     zonesState: $('#zones-state'),
     streamImg: $('#stream'),
@@ -69,6 +71,7 @@
     startSourceBtn: $('#start-source'),
 
     feedCount: $('#feed-count'),
+    clearEventsBtn: $('#clear-events'),
     eventSearch: $('#event-search'),
     filterBtns: $$('.filter-btn'),
     filterCounts: {
@@ -79,6 +82,7 @@
       crowd_incident: $('#count-crowd_incident'),
       suspicious_activity: $('#count-suspicious_activity')
     },
+    confidenceFilter: $('#confidence-filter'),
     eventFeed: $('#event-feed'),
 
     modal: $('#event-modal'),
@@ -86,6 +90,9 @@
     modalCategoryBadge: $('#modal-category-badge'),
     modalTitle: $('#modal-title'),
     modalImage: $('#modal-image'),
+    modalClipsContainer: $('#modal-clips-container'),
+    modalClipsCount: $('#modal-clips-count'),
+    modalClipsStrip: $('#modal-clips-strip'),
     modalSummary: $('#modal-summary'),
     modalCamera: $('#modal-camera'),
     modalTimestamp: $('#modal-timestamp'),
@@ -245,21 +252,28 @@
     }
   }
 
-  // ============ HUD CLOCK & FPS ============
+  // ============ HUD CLOCK & TELEMETRY ============
   function updateClock() {
     const now = new Date();
     els.hudTime.textContent = now.toTimeString().split(' ')[0];
     els.hudCamera.textContent = `CAM: ${currentCamera.toUpperCase()}`;
   }
 
-  function tickFps() {
-    fpsCounter++;
-    const now = performance.now();
-    if (now - lastFpsTime >= 1000) {
-      els.hudFps.textContent = `${fpsCounter} FPS`;
-      fpsCounter = 0;
-      lastFpsTime = now;
-    }
+  async function fetchCameraTelemetry() {
+    try {
+      const res = await fetch(`/api/cameras/${currentCamera}`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const cam = await res.json();
+      if (cam && cam.is_active && typeof cam.fps === 'number') {
+        const displayFps = cam.fps > 0 ? cam.fps.toFixed(1) : '25.0';
+        els.hudFps.textContent = `${displayFps} FPS`;
+        if (els.statProcessing) {
+          els.statProcessing.textContent = `Active (${cam.active_tracks || 0} tracks)`;
+        }
+      } else if (cam && !cam.is_active) {
+        els.hudFps.textContent = 'STANDBY';
+      }
+    } catch (err) {}
   }
 
   // ============ EVENT FEED RENDERING ============
@@ -268,6 +282,9 @@
 
     if (currentCategory) {
       filtered = filtered.filter(e => e.category === currentCategory);
+    }
+    if (minConfidence > 0) {
+      filtered = filtered.filter(e => (e.confidence ?? 1) >= minConfidence);
     }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -297,9 +314,14 @@
         : '';
 
       const keyframeSrc = ev.keyframe_url || `/frames/${ev.id}.jpg`;
+      const summaryText = ev.summary || '';
+      const isWeapon = /gun|firearm|handgun|pistol|rifle|knife|blade|weapon|brandish|shot|shooting/i.test(summaryText) || summaryText.includes('[WEAPON DETECTED]');
+      const weaponBadge = isWeapon
+        ? `<span class="badge badge--weapon" title="Weapon or firearm identified in footage"><span class="weapon-dot"></span> WEAPON DETECTED</span>`
+        : '';
 
       return `
-        <article class="event-item event-item--${ev.category}" data-id="${ev.id}" tabindex="0" role="listitem" aria-label="Incident ${ev.id}: ${meta.label}">
+        <article class="event-item event-item--${ev.category} ${isWeapon ? 'event-item--weapon' : ''}" data-id="${ev.id}" tabindex="0" role="listitem" aria-label="Incident ${ev.id}: ${meta.label}">
           <div class="event-thumb-wrapper">
             <img class="event-thumb" src="${keyframeSrc}" alt="Keyframe for incident ${ev.id}" loading="lazy"
               onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'104\\' height=\\'64\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%23080c14\\'/><text x=\\'50%\\' y=\\'50%\\' fill=\\'%23475569\\' font-size=\\'9\\' font-family=\\'monospace\\' text-anchor=\\'middle\\' dominant-baseline=\\'middle\\'>NO FRAME</text></svg>'">
@@ -307,6 +329,7 @@
           <div class="event-body">
             <div class="event-meta">
               <span class="badge ${meta.badgeClass}">${meta.label}</span>
+              ${weaponBadge}
               <span class="event-time" title="${formatTimestamp(ev.timestamp)}">${formatTime(ev.timestamp)}${formatRelativeTime(ev.timestamp) ? ` · ${formatRelativeTime(ev.timestamp)}` : ''}</span>
               <span class="event-camera">${ev.camera_id}</span>
             </div>
@@ -340,9 +363,11 @@
 
     const meta = CATEGORY_META[ev.category] || { label: ev.category, badgeClass: '' };
     const keyframeSrc = ev.keyframe_url || `/frames/${ev.id}.jpg`;
+    const summaryText = ev.summary || '';
+    const isWeapon = /gun|firearm|handgun|pistol|rifle|knife|blade|weapon|brandish|shot|shooting/i.test(summaryText) || summaryText.includes('[WEAPON DETECTED]');
 
-    els.modalCategoryBadge.className = `badge ${meta.badgeClass}`;
-    els.modalCategoryBadge.textContent = meta.label;
+    els.modalCategoryBadge.className = `badge ${meta.badgeClass} ${isWeapon ? 'badge--weapon' : ''}`;
+    els.modalCategoryBadge.textContent = isWeapon ? `[WEAPON] ${meta.label}` : meta.label;
     els.modalTitle.textContent = `Incident Record #${ev.id}`;
     els.modalImage.src = keyframeSrc;
     els.modalImage.alt = `Keyframe for ${meta.label} #${ev.id}`;
@@ -355,6 +380,26 @@
     els.modalTracks.innerHTML = ev.track_ids && ev.track_ids.length
       ? ev.track_ids.map(id => `<span class="track-chip">Target #${id}</span>`).join(' ')
       : '<span style="color:var(--text-dim)">None detected</span>';
+
+    // Fetch and display multi-frame temporal clip sequence
+    if (els.modalClipsContainer && els.modalClipsStrip) {
+      els.modalClipsContainer.style.display = 'none';
+      els.modalClipsStrip.innerHTML = '';
+      fetch(`/api/clips/${ev.id}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.frames && data.frames.length > 0) {
+            els.modalClipsContainer.style.display = 'block';
+            els.modalClipsCount.textContent = `${data.count} Frames Captured`;
+            els.modalClipsStrip.innerHTML = data.frames.map((fPath, idx) => `
+              <div class="clip-thumb-wrap" style="flex-shrink:0; width:84px; height:52px; border-radius:3px; overflow:hidden; border:1px solid var(--border-default); cursor:pointer;" title="Click to view Frame ${idx+1}">
+                <img src="${fPath}" style="width:100%; height:100%; object-fit:cover;" alt="Sequence frame ${idx+1}" onclick="document.getElementById('modal-image').src='${fPath}'">
+              </div>
+            `).join('');
+          }
+        })
+        .catch(() => {});
+    }
 
     els.queryLink.href = `chat.html?q=${encodeURIComponent(`Provide full analysis of incident #${ev.id} on ${ev.camera_id}`)}`;
 
@@ -401,16 +446,16 @@
       const events = data.events || [];
 
       if (events.length) {
-        const maxId = Math.max(...events.map(e => e.id));
-        if (lastEventId !== 0 && maxId > lastEventId) {
+        const newEvents = events.filter(e => e.id > lastEventId);
+        // Only alert audio if a new verified event with confidence >= 65% is recorded
+        if (lastEventId !== 0 && newEvents.some(e => (e.confidence ?? 0) >= 0.65)) {
           playAlertChime();
         }
-        lastEventId = maxId;
+        lastEventId = Math.max(...events.map(e => e.id));
       }
 
       currentEvents = events;
       renderEvents();
-      tickFps();
     } catch (err) {
       console.warn('[EventLens] Events fetch failed:', err);
     }
@@ -421,6 +466,33 @@
     els.startSourceBtn.innerHTML = `
       <div class="spinner" style="width:12px;height:12px;border-width:2px;"></div>
       Connecting…`;
+
+    // If webcam source requested, trigger native browser camera permission prompt
+    const isWebcam = source === '0' || source.toLowerCase().includes('webcam');
+    if (isWebcam) {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        try {
+          const permStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 640 }, height: { ideal: 480 } }
+          });
+          // Release client test stream so driver can bind device
+          permStream.getTracks().forEach(t => t.stop());
+        } catch (pErr) {
+          console.warn('[EventLens] Browser camera permission rejected:', pErr);
+          alert('Camera Permission Required:\nPlease allow camera access in your browser prompt to activate local webcam monitoring.');
+          els.startSourceBtn.disabled = false;
+          els.startSourceBtn.innerHTML = `
+            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Start Ingestion`;
+          return;
+        }
+      }
+      // When monitoring live webcam, auto-disable synthetic lobby overlay zones
+      zonesVisible = false;
+      if (els.zonesToggle) els.zonesToggle.setAttribute('aria-pressed', 'false');
+      if (els.zonesState) els.zonesState.textContent = 'Off';
+      drawZones();
+    }
 
     try {
       const res = await fetch('/api/source', {
@@ -461,7 +533,16 @@
       els.streamImg.src = `/stream/${currentCamera}?t=${Date.now()}`;
       drawZones();
       fetchEvents();
+      fetchCameraTelemetry();
     });
+
+    // Quick Live Webcam button
+    if (els.quickWebcamBtn) {
+      els.quickWebcamBtn.addEventListener('click', () => {
+        els.sourceInput.value = '0';
+        startSource('0');
+      });
+    }
 
     // Zones toggle
     els.zonesToggle.addEventListener('click', () => {
@@ -527,6 +608,14 @@
       });
     });
 
+    // Confidence threshold filter
+    if (els.confidenceFilter) {
+      els.confidenceFilter.addEventListener('change', e => {
+        minConfidence = parseFloat(e.target.value) || 0;
+        renderEvents();
+      });
+    }
+
     // Search query
     els.eventSearch.addEventListener('input', e => {
       searchQuery = e.target.value.trim().toLowerCase();
@@ -556,6 +645,23 @@
     els.modal.addEventListener('click', e => {
       if (e.target === els.modal) closeModal();
     });
+
+    // Clear incidents feed
+    if (els.clearEventsBtn) {
+      els.clearEventsBtn.addEventListener('click', async () => {
+        if (!confirm('Clear all recorded incidents from database and feed?')) return;
+        try {
+          const res = await fetch('/api/events', { method: 'DELETE' });
+          if (res.ok) {
+            currentEvents = [];
+            renderEvents();
+            fetchStats();
+          }
+        } catch (err) {
+          console.error('[EventLens] Failed to clear incidents:', err);
+        }
+      });
+    }
 
     // Stream error recovery
     els.streamImg.addEventListener('error', () => {
@@ -603,11 +709,15 @@
   function startPolling() {
     fetchStats();
     fetchEvents();
+    fetchCameraTelemetry();
     pollTimer = setInterval(() => {
       fetchStats();
       fetchEvents();
     }, 2000);
-    clockTimer = setInterval(updateClock, 1000);
+    clockTimer = setInterval(() => {
+      updateClock();
+      fetchCameraTelemetry();
+    }, 1000);
   }
 
   function stopPolling() {

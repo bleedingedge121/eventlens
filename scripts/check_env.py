@@ -35,14 +35,17 @@ def check_venv():
     return False, "No virtual environment detected"
 
 
-def check_cuda():
+def check_hardware_acceleration():
     ok, out, _ = run_cmd(f"{sys.executable} -c \"import torch; print(torch.cuda.is_available())\"")
-    if not ok or out != "True":
-        return False, "CUDA not available (torch.cuda.is_available() is False)"
-    ok2, out2, _ = run_cmd(f"{sys.executable} -c \"import torch; print(torch.cuda.get_device_name(0))\"")
-    if ok2:
-        return True, f"CUDA GPU: {out2}"
-    return True, "CUDA available"
+    if ok and out == "True":
+        ok2, out2, _ = run_cmd(f"{sys.executable} -c \"import torch; print(torch.cuda.get_device_name(0))\"")
+        return True, f"NVIDIA CUDA GPU: {out2 if ok2 else 'Available'}"
+
+    ok_mps, out_mps, _ = run_cmd(f"{sys.executable} -c \"import torch; print(hasattr(torch.backends, 'mps') and torch.backends.mps.is_available())\"")
+    if ok_mps and out_mps == "True":
+        return True, "Apple Silicon GPU (MPS Metal Acceleration active)"
+
+    return False, "Hardware acceleration not available (running in CPU fallback mode)"
 
 
 def check_ollama():
@@ -109,7 +112,7 @@ def main():
     checks = [
         ("Python Version", check_python_version),
         ("Virtual Env", check_venv),
-        ("CUDA / GPU", check_cuda),
+        ("GPU Acceleration", check_hardware_acceleration),
         ("Ollama", check_ollama),
         ("Models", check_models),
         ("Directories", check_directories),

@@ -209,11 +209,11 @@ Send the candidate frames with a prompt asking for ONLY a JSON object: `{"catego
 
 ## 15. Milestones (check off as done)
 
-- [ ] M0 (Hour 0-2): setup done, GPU confirmed, VLM speed test done, contract frozen, mock server up
-- [ ] M1 (Hour 8): thin slice works end to end
-- [ ] M2 (Hour 16): tailgating + person_down real; VLM summaries; live feed; events list; chat answers 3 canned questions
-- [ ] M3 (Hour 24): real chat (question to SQL to answer); fighting, crowd, loitering; first evaluation run
-- [ ] M4 (Hour 36): feature freeze; only bug fixes after this
+- [x] M0 (Hour 0-2): setup done, GPU confirmed, VLM speed test done, contract frozen, mock server up
+- [x] M1 (Hour 8): thin slice works end to end
+- [x] M2 (Hour 16): tailgating + person_down real; VLM summaries; live feed; events list; chat answers 3 canned questions
+- [x] M3 (Hour 24): real chat (question to SQL to answer); fighting, crowd, loitering; first evaluation run
+- [x] M4 (Hour 36): feature freeze; only bug fixes after this (qwen3-vl:8b integrated, confidence thresholding, clip sequence storage)
 - [ ] M5 (Hour 42): final evaluation, report, slides, recorded backup demo video
 - [ ] M6 (Hour 46): README verified from a clean start, final push, submit
 

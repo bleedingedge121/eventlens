@@ -91,12 +91,13 @@ def _camera_worker_loop(
     settings = load_settings()
     cam_config = load_camera_config(camera_id)
 
-    target_fps = settings.get("vision", {}).get("target_fps", 4.0)
-    yolo_model = settings.get("vision", {}).get("yolo_model", "yolo11n.pt")
+    target_fps = settings.get("vision", {}).get("target_fps", 25.0)
+    yolo_model = settings.get("vision", {}).get("yolo_model", "yolo11s.pt")
     device = settings.get("vision", {}).get("device", "cuda:0")
+    conf_thresh = float(settings.get("vision", {}).get("confidence_threshold", 0.25))
 
     ingest = VideoIngest(source=source, target_fps=target_fps)
-    tracker = DetectorTracker(model_name=yolo_model, device=device)
+    tracker = DetectorTracker(model_name=yolo_model, conf_thresh=conf_thresh, device=device)
     trigger = TriggerEngine(camera_id=camera_id, config=cam_config)
 
     with _LOCK:
@@ -128,15 +129,16 @@ def _camera_worker_loop(
             now = time.time()
 
             if now - fps_start_time >= 1.0:
-                current_fps = round(frames_counted / (now - fps_start_time), 1)
+                dt_span = now - fps_start_time
+                current_fps = round(frames_counted / dt_span, 1) if dt_span > 0 else 0.0
                 fps_start_time = now
-                frames_counted = 0
                 with _LOCK:
                     if camera_id in _CAMERA_METRICS:
                         _CAMERA_METRICS[camera_id]["fps"] = current_fps
                         _CAMERA_METRICS[camera_id]["processed_frames"] += frames_counted
                         _CAMERA_METRICS[camera_id]["active_tracks"] = len(detections)
                         _CAMERA_METRICS[camera_id]["last_active"] = now
+                frames_counted = 0
 
             # Top Camera Header
             cv2.putText(

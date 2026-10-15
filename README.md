@@ -19,9 +19,10 @@ Modern CCTV surveillance systems record petabytes of passive footage, yet critic
 **EventLens** delivers an edge-native, 100% open-source intelligence pipeline running on a single laptop (Lenovo Legion with RTX 5070 Ti, 12 GB VRAM):
 1. **Continuous Lightweight Ingestion**: Ingests video at 3–5 FPS with YOLOv11 + ByteTrack to detect and track human targets in real-time with negligible compute overhead.
 2. **Deterministic Geometric Rule Triggers**: Real-time bounding box geometry, aspect-ratio inversion, velocity vectors, and zone polygons trigger anomaly candidates *without* continuous vision-language calls.
-3. **Selective Local VLM Verification**: Only triggered anomaly candidate frames are dispatched to a local Ollama Vision-Language Model (Qwen2.5-VL / Gemma 3) for multi-sentence summarization and category confirmation.
-4. **Conversational SafeSQL Auditing**: Security officers query recorded events in plain English ("*Show all tailgating events from camera 1 today*"). A local LLM compiles the query into single, read-only `SELECT` statements strictly audited against SQLite.
-5. **Industrial SOC Console**: Zero-framework, dark command-center interface with HUD overlays, live zones, keyboard shortcuts, and full audit transparency.
+3. **Selective Local VLM Verification**: Only triggered anomaly candidate frames are dispatched to a local Ollama Vision-Language Model (`qwen3-vl:8b` / `qwen2.5-vl` / `gemma3`) for multi-sentence summarization, weapon recognition, and category confirmation.
+4. **Confidence Thresholding & Multi-Frame Clips**: Configurable confidence gates filter noise, while high-confidence incidents store complete multi-frame temporal sequences (`/clips/{id}`) for interactive visual scrub in the console.
+5. **Conversational SafeSQL Auditing**: Security officers query recorded events in plain English ("*Show all tailgating events from camera 1 today*"). A local LLM compiles the query into single, read-only `SELECT` statements strictly audited against SQLite.
+6. **Industrial SOC Console**: Zero-framework, dark command-center interface with HUD overlays, live zones, confidence selectors, keyboard shortcuts, and full audit transparency.
 
 ---
 
@@ -129,7 +130,10 @@ Adheres strictly to HackHive Section 8 frozen API contracts:
 | `GET` | `/api/health` | Returns server health status (`{"ok": true}`) |
 | `GET` | `/api/events` | Queries incident ledger with optional `category`, `camera_id`, `since`, `limit` |
 | `GET` | `/api/events/{id}` | Fetches detailed record and keyframe for a single event |
+| `GET` | `/api/clips/{id}` | Fetches ordered multi-frame temporal image sequence (`/clips/{id}/frame_XX.jpg`) |
 | `GET` | `/api/stats` | Aggregated telemetry (counts by category, average latency, total today) |
+| `GET` | `/api/devices` | Discovers plugged USB/integrated webcams with real hardware test verification |
+| `GET` | `/api/dataset-videos` | Lists available offline evaluation & benchmark video datasets |
 | `GET` | `/stream/{camera_id}` | Live annotated MJPEG video stream with bounding boxes |
 | `POST` | `/api/source` | Starts video ingestion (`{"camera_id": "cam1", "source": "path-or-rtsp"}`) |
 | `POST` | `/api/chat` | Natural language text-to-SQL query (`{"question": "..."}` → `{"answer", "sql", "events"}`) |

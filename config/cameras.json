@@ -20,12 +20,12 @@
         "max_loitering_seconds": 6
       }
     ],
-    "crowd_threshold": 4,
-    "tailgating_time_window_seconds": 1.5,
-    "person_down_aspect_ratio_threshold": 1.15,
-    "person_down_still_seconds": 3.0,
-    "fighting_overlap_iou": 0.45,
-    "fighting_speed_threshold_pixels_per_sec": 120.0
+    "crowd_threshold": 7,
+    "tailgating_time_window_seconds": 1.8,
+    "person_down_aspect_ratio_threshold": 0.70,
+    "person_down_still_seconds": 0.8,
+    "fighting_overlap_iou": 0.38,
+    "fighting_speed_threshold_pixels_per_sec": 105.0
   },
   "cam2": {
     "name": "Office Floor Corridor",
@@ -48,11 +48,11 @@
         "max_loitering_seconds": 8
       }
     ],
-    "crowd_threshold": 5,
-    "tailgating_time_window_seconds": 2.0,
-    "person_down_aspect_ratio_threshold": 1.15,
-    "person_down_still_seconds": 3.0,
-    "fighting_overlap_iou": 0.45,
-    "fighting_speed_threshold_pixels_per_sec": 110.0
+    "crowd_threshold": 7,
+    "tailgating_time_window_seconds": 1.8,
+    "person_down_aspect_ratio_threshold": 0.70,
+    "person_down_still_seconds": 0.8,
+    "fighting_overlap_iou": 0.38,
+    "fighting_speed_threshold_pixels_per_sec": 105.0
   }
 }

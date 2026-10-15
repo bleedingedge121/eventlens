@@ -192,6 +192,9 @@ SQL:"""
         elif "suspicious" in q or "loitering" in q:
             category = "suspicious_activity"
 
+        # Weapon / firearm detection
+        is_weapon = any(w in q for w in ["weapon", "gun", "firearm", "pistol", "rifle", "knife", "blade", "armed", "shooting", "shot"])
+
         # Today detection
         is_today = "today" in q
 
@@ -202,6 +205,8 @@ SQL:"""
             clauses.append(f"camera_id = '{cam}'")
         if is_today:
             clauses.append(f"timestamp LIKE '{today_str}%'")
+        if is_weapon:
+            clauses.append("(summary LIKE '%weapon%' OR summary LIKE '%gun%' OR summary LIKE '%firearm%' OR summary LIKE '%knife%' OR summary LIKE '%armed%')")
 
         where_str = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         return f"SELECT * FROM events{where_str} ORDER BY id DESC LIMIT 50"

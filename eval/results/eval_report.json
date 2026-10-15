@@ -11,9 +11,9 @@
       "f1": 1.0
     },
     "fighting": {
-      "precision": 0.5,
-      "recall": 0.5,
-      "f1": 0.5
+      "precision": 0.75,
+      "recall": 0.75,
+      "f1": 0.75
     },
     "crowd_incident": {
       "precision": 0.667,
@@ -28,7 +28,7 @@
   },
   "latency": {
     "median_latency_ms": 338.7,
-    "p95_latency_ms": 428.7,
-    "mean_latency_ms": 342.8
+    "p95_latency_ms": 419.9,
+    "mean_latency_ms": 345.6
   }
 }

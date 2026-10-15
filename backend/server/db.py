@@ -110,6 +110,15 @@ class Database:
             cursor.execute("UPDATE events SET keyframe_path = ? WHERE id = ?", (keyframe_path, event_id))
             conn.commit()
 
+    def clear_events(self) -> int:
+        """Clears all records from the events table."""
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM events")
+            cursor.execute("DELETE FROM sqlite_sequence WHERE name='events'")
+            conn.commit()
+            return cursor.rowcount
+
     def get_event(self, event_id: int) -> Optional[Dict[str, Any]]:
         """Retrieves a single event by ID formatted according to the Section 8 contract."""
         with self._connection() as conn:

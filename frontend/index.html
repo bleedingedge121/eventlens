@@ -129,14 +129,18 @@
             <h2>Surveillance Viewport</h2>
           </div>
           <div class="panel-controls">
-            <button id="zones-toggle" class="control-btn" aria-pressed="true" title="Toggle Detection Zones (Key: Z)">
+            <button id="btn-quick-webcam" class="control-btn" title="Connect Local Webcam / Integrated Camera (Device 0)" style="border-color: rgba(16, 185, 129, 0.4); color: #34d399;">
+              <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+              <span class="label">Live Webcam</span>
+            </button>
+            <button id="zones-toggle" class="control-btn" aria-pressed="false" title="Toggle Detection Zones Overlay (Key: Z)">
               <svg class="icon-svg" viewBox="0 0 24 24">
                 <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
                 <polyline points="2 17 12 22 22 17"></polyline>
                 <polyline points="2 12 12 17 22 12"></polyline>
               </svg>
               <span class="label">Zones</span>
-              <span class="control-state" id="zones-state">On</span>
+              <span class="control-state" id="zones-state">Off</span>
               <span class="kbd-hint">Z</span>
             </button>
             <select id="camera-select" class="select" aria-label="Select Camera Stream">
@@ -183,7 +187,7 @@
 
         <!-- Quick Scenario Selection Bar -->
         <div class="scenario-bar" role="group" aria-label="Benchmark Scenarios">
-          <span class="scenario-label">Quick Stream:</span>
+          <span class="scenario-label">Synthetic Tests:</span>
           <button class="scenario-btn" data-src="data/videos/test_tailgating.mp4" title="Tailgating test clip">
             <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
             Tailgating
@@ -210,6 +214,27 @@
           </button>
         </div>
 
+        <!-- HackHive Real Dataset Video Bar -->
+        <div class="scenario-bar" role="group" aria-label="Dataset Videos" style="border-top: 1px dashed var(--border-default); background: rgba(14, 165, 233, 0.04);">
+          <span class="scenario-label" style="color: var(--accent-cyan);"><span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--accent-cyan); margin-right:4px;"></span>Dataset (HackHive):</span>
+          <button class="scenario-btn" data-src="D:/ClaudeCode/HackHive/dataset/1.mp4" title="D:\ClaudeCode\HackHive\dataset\1.mp4">
+            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            1.mp4 (Group / Fight)
+          </button>
+          <button class="scenario-btn" data-src="D:/ClaudeCode/HackHive/dataset/WhatsApp Video 2026-10-16 at 1.29.28 AM.mp4" title="D:\ClaudeCode\HackHive\dataset\WhatsApp Video 2026-10-16 at 1.29.28 AM.mp4">
+            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            1.29.28 AM (Doorway)
+          </button>
+          <button class="scenario-btn" data-src="D:/ClaudeCode/HackHive/dataset/WhatsApp Video 2026-10-16 at 1.29.33 AM.mp4" title="D:\ClaudeCode\HackHive\dataset\WhatsApp Video 2026-10-16 at 1.29.33 AM.mp4">
+            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            1.29.33 AM (Perimeter)
+          </button>
+          <button class="scenario-btn" data-src="D:/ClaudeCode/HackHive/dataset/WhatsApp Video 2026-10-16 at 1.29.34 AM.mp4" title="D:\ClaudeCode\HackHive\dataset\WhatsApp Video 2026-10-16 at 1.29.34 AM.mp4">
+            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            1.29.34 AM (Crowd Gathering)
+          </button>
+        </div>
+
         <!-- Custom Video Ingestion Bar -->
         <div class="source-bar">
           <input type="text" id="source-input" class="source-input" placeholder="Enter video path (e.g. data/videos/test1.mp4), RTSP URL, or '0' for webcam" autocomplete="off" spellcheck="false">
@@ -226,6 +251,10 @@
           <div class="panel-title-group">
             <h2>Classified Incidents</h2>
             <span class="counter" id="feed-count" aria-live="polite">0</span>
+            <button id="clear-events" class="control-btn" title="Clear all incident records" style="padding: 2px 8px; font-size: 11px; margin-left: 8px;">
+              <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              Clear
+            </button>
           </div>
           <div class="search-wrap" role="search">
             <svg class="icon-svg search-icon" viewBox="0 0 24 24">
@@ -256,6 +285,12 @@
           <button class="filter-btn" data-category="suspicious_activity" aria-pressed="false">
             Suspicious <span class="filter-count" id="count-suspicious_activity">0</span>
           </button>
+          <select id="confidence-filter" class="select" style="min-width: 125px; font-size: 0.72rem; padding: 2px 6px; margin-left: auto;" title="Filter incidents by minimum AI confidence threshold">
+            <option value="0">All Conf (0%+)</option>
+            <option value="0.5" selected>Verified (50%+)</option>
+            <option value="0.7">High Conf (70%+)</option>
+            <option value="0.85">Critical (85%+)</option>
+          </select>
         </div>
 
         <!-- Scrollable Event Feed -->
@@ -286,6 +321,14 @@
         <figure class="modal-image-wrapper">
           <img id="modal-image" src="" alt="Event keyframe visualization">
         </figure>
+
+        <div id="modal-clips-container" style="display:none; margin: 8px 0 14px 0;">
+          <span class="detail-label" style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.75rem;">
+            <span>Temporal Evidence Sequence (Clips)</span>
+            <span id="modal-clips-count" style="font-family:var(--font-mono); color:var(--accent-cyan); font-size:0.7rem;"></span>
+          </span>
+          <div id="modal-clips-strip" style="display:flex; gap:8px; overflow-x:auto; padding-bottom:6px;"></div>
+        </div>
 
         <div class="modal-details">
           <div class="modal-row">

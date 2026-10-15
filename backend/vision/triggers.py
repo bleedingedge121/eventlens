@@ -61,6 +61,7 @@ class TrackHistory:
         self.positions: deque = deque(maxlen=60)
         self.zone_entry_times: Dict[str, float] = {}
         self.door_crossing_time: Optional[float] = None
+        self.was_outside_door: bool = False
         self.down_start_time: Optional[float] = None
         self.down_start_pos: Optional[Tuple[float, float]] = None
         self.last_seen: float = time.time()
@@ -73,7 +74,9 @@ class TriggerEngine:
         self.tracks: Dict[int, TrackHistory] = {}
         self.last_door_crossings: deque = deque(maxlen=10)  # stores (track_id, timestamp)
         self.last_trigger_times: Dict[str, float] = {}  # debouncing triggers
-        self.cooldown_seconds = 10.0
+        self.cooldown_seconds = 8.0
+        # Persistent spatial memory for collapsed persons (resistant to ID switches)
+        self.prone_regions: List[Dict[str, Any]] = []
 
     def update(
         self,
@@ -103,15 +106,15 @@ class TriggerEngine:
             th.positions.append((current_time, box, cx, cy))
             th.last_seen = current_time
 
-        # Remove stale tracks older than 10 seconds
-        stale = [tid for tid, th in self.tracks.items() if current_time - th.last_seen > 10.0]
+        # Remove stale tracks older than 8 seconds
+        stale = [tid for tid, th in self.tracks.items() if current_time - th.last_seen > 8.0]
         for tid in stale:
             del self.tracks[tid]
 
-        # 2. Check Crowd Incident
-        crowd_thresh = self.config.get("crowd_threshold", 5)
+        # 2. Check Crowd Incident (Exceeds crowd threshold)
+        crowd_thresh = self.config.get("crowd_threshold", 7)
         if len(active_ids) >= crowd_thresh:
-            if self._can_trigger("crowd_incident", current_time):
+            if self._can_trigger("crowd_incident", current_time, cooldown=15.0):
                 candidates.append({
                     "camera_id": self.camera_id,
                     "category_hint": "crowd_incident",
@@ -120,22 +123,64 @@ class TriggerEngine:
                 })
 
         # 3. Check Person Down & Suspicious Activity per person
-        aspect_thresh = self.config.get("person_down_aspect_ratio_threshold", 1.15)
-        still_sec = self.config.get("person_down_still_seconds", 3.0)
+        aspect_thresh = self.config.get("person_down_aspect_ratio_threshold", 0.70)
+        still_sec = self.config.get("person_down_still_seconds", 1.8)
         door_zone = self.config.get("door_zone")
         restricted_zones = self.config.get("restricted_zones", [])
 
+        # Prune stale prone regions older than 2.5 seconds
+        self.prone_regions = [
+            r for r in self.prone_regions if current_time - r["last_seen"] <= 2.5
+        ]
+
         for tid in active_ids:
             th = self.tracks[tid]
-            if len(th.positions) < 3:
+            if len(th.positions) < 2:
                 continue
 
             latest_time, box, cx, cy = th.positions[-1]
             w = box[2] - box[0]
             h = box[3] - box[1]
 
-            # Aspect ratio check: wider than tall
-            if h > 0 and (w / h) >= aspect_thresh:
+            # Aspect ratio check: in angled surveillance CCTV, horizontal or collapsed person has w/h >= 0.70
+            is_seated_webcam = (box[1] < 80 and h > 180 and (w / h) < 0.85)
+            is_prone = (h > 0 and (w / h) >= aspect_thresh and not is_seated_webcam)
+
+            if is_prone:
+                # Update or register spatial prone region
+                matched_region = None
+                for reg in self.prone_regions:
+                    dist = ((cx - reg["cx"]) ** 2 + (cy - reg["cy"]) ** 2) ** 0.5
+                    if dist < 65.0:
+                        matched_region = reg
+                        break
+
+                if matched_region is None:
+                    matched_region = {
+                        "cx": cx,
+                        "cy": cy,
+                        "start_time": current_time,
+                        "last_seen": current_time,
+                        "track_ids": {tid},
+                    }
+                    self.prone_regions.append(matched_region)
+                else:
+                    matched_region["last_seen"] = current_time
+                    matched_region["cx"] = 0.8 * matched_region["cx"] + 0.2 * cx
+                    matched_region["cy"] = 0.8 * matched_region["cy"] + 0.2 * cy
+                    matched_region["track_ids"].add(tid)
+
+                region_dt = current_time - matched_region["start_time"]
+                if region_dt >= still_sec:
+                    if self._can_trigger("person_down", current_time, cooldown=8.0):
+                        candidates.append({
+                            "camera_id": self.camera_id,
+                            "category_hint": "person_down",
+                            "timestamp": datetime.now().isoformat(timespec="seconds"),
+                            "track_ids": list(matched_region["track_ids"]),
+                        })
+
+                # Also track individual track persistence
                 if th.down_start_time is None:
                     th.down_start_time = latest_time
                     th.down_start_pos = (cx, cy)
@@ -144,7 +189,7 @@ class TriggerEngine:
                     start_cx, start_cy = th.down_start_pos
                     dist = ((cx - start_cx) ** 2 + (cy - start_cy) ** 2) ** 0.5
                     if dt >= still_sec and dist < 45.0:
-                        if self._can_trigger(f"person_down_{tid}", current_time):
+                        if self._can_trigger("person_down", current_time, cooldown=8.0):
                             candidates.append({
                                 "camera_id": self.camera_id,
                                 "category_hint": "person_down",
@@ -155,15 +200,17 @@ class TriggerEngine:
                 th.down_start_time = None
                 th.down_start_pos = None
 
-            # Check Door Crossing for Tailgating
-            if door_zone and point_in_polygon(cx, cy, door_zone):
-                if th.door_crossing_time is None:
+            # Check Door Crossing for Tailgating:
+            # Must transition from OUTSIDE the door zone into the door zone
+            in_door = bool(door_zone and point_in_polygon(cx, cy, door_zone))
+            if in_door:
+                if th.was_outside_door:
                     th.door_crossing_time = current_time
-                    # Compare with prior door crossings
+                    th.was_outside_door = False
                     tailgate_win = self.config.get("tailgating_time_window_seconds", 1.8)
                     for prior_tid, prior_t in list(self.last_door_crossings):
                         if prior_tid != tid and (current_time - prior_t) <= tailgate_win:
-                            if self._can_trigger("tailgating", current_time):
+                            if self._can_trigger("tailgating", current_time, cooldown=12.0):
                                 candidates.append({
                                     "camera_id": self.camera_id,
                                     "category_hint": "tailgating",
@@ -173,6 +220,7 @@ class TriggerEngine:
                             break
                     self.last_door_crossings.append((tid, current_time))
             else:
+                th.was_outside_door = True
                 th.door_crossing_time = None
 
             # Check Restricted Zones (Loitering)
@@ -184,7 +232,7 @@ class TriggerEngine:
                     if zname not in th.zone_entry_times:
                         th.zone_entry_times[zname] = current_time
                     elif current_time - th.zone_entry_times[zname] >= max_loiter:
-                        if self._can_trigger(f"suspicious_{zname}_{tid}", current_time):
+                        if self._can_trigger(f"suspicious_{zname}_{tid}", current_time, cooldown=20.0):
                             candidates.append({
                                 "camera_id": self.camera_id,
                                 "category_hint": "suspicious_activity",
@@ -194,10 +242,10 @@ class TriggerEngine:
                 else:
                     th.zone_entry_times.pop(zname, None)
 
-        # 4. Check Fighting (Inter-track overlap & rapid kinetic movement)
+        # 4. Check Fighting (Inter-track overlap & kinetic movement)
         active_list = list(active_ids)
-        fight_iou_thresh = self.config.get("fighting_overlap_iou", 0.40)
-        speed_thresh = self.config.get("fighting_speed_threshold_pixels_per_sec", 110.0)
+        fight_iou_thresh = self.config.get("fighting_overlap_iou", 0.38)
+        speed_thresh = self.config.get("fighting_speed_threshold_pixels_per_sec", 105.0)
 
         for i in range(len(active_list)):
             for j in range(i + 1, len(active_list)):
@@ -215,7 +263,7 @@ class TriggerEngine:
                             s1 = (((p1_now[2] - p1_prev[2]) ** 2 + (p1_now[3] - p1_prev[3]) ** 2) ** 0.5) / dt1
                             s2 = (((p2_now[2] - p2_prev[2]) ** 2 + (p2_now[3] - p2_prev[3]) ** 2) ** 0.5) / dt2
                             if (s1 + s2) / 2.0 >= speed_thresh:
-                                if self._can_trigger("fighting", current_time):
+                                if self._can_trigger("fighting", current_time, cooldown=12.0):
                                     candidates.append({
                                         "camera_id": self.camera_id,
                                         "category_hint": "fighting",
@@ -223,11 +271,21 @@ class TriggerEngine:
                                         "track_ids": [active_list[i], active_list[j]],
                                     })
 
-        return candidates
+        # Deduplicate candidates within the same frame by category hint
+        seen_cats = set()
+        unique_candidates = []
+        for c in candidates:
+            cat = c["category_hint"]
+            if cat not in seen_cats:
+                seen_cats.add(cat)
+                unique_candidates.append(c)
 
-    def _can_trigger(self, key: str, current_time: float) -> bool:
+        return unique_candidates
+
+    def _can_trigger(self, key: str, current_time: float, cooldown: Optional[float] = None) -> bool:
+        cd = cooldown if cooldown is not None else self.cooldown_seconds
         last_t = self.last_trigger_times.get(key, -1e9)
-        if current_time - last_t >= self.cooldown_seconds:
+        if current_time - last_t >= cd:
             self.last_trigger_times[key] = current_time
             return True
         return False

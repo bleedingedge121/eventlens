@@ -167,6 +167,9 @@ class DetectorTracker:
             if torch.cuda.is_available():
                 self.device = "cuda:0"
                 self.device_name = torch.cuda.get_device_name(0)
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                self.device = "mps"
+                self.device_name = "Apple Silicon GPU (MPS)"
             else:
                 self.device = "cpu"
                 self.device_name = "CPU"
