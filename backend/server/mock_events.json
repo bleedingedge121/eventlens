@@ -1,0 +1,68 @@
+[
+  {
+    "id": 1,
+    "timestamp": "2026-10-15T09:14:22",
+    "camera_id": "cam1",
+    "category": "tailgating",
+    "confidence": 0.88,
+    "summary": "Two individuals entered through turnstile A in rapid succession (0.8s apart) on a single badge swipe.",
+    "keyframe_url": "/frames/1.jpg",
+    "track_ids": [101, 102],
+    "latency_ms": 380
+  },
+  {
+    "id": 2,
+    "timestamp": "2026-10-15T10:45:05",
+    "camera_id": "cam2",
+    "category": "person_down",
+    "confidence": 0.94,
+    "summary": "Tracked individual slipped and remained prone on the floor for over 4 seconds without movement.",
+    "keyframe_url": "/frames/2.jpg",
+    "track_ids": [107],
+    "latency_ms": 420
+  },
+  {
+    "id": 3,
+    "timestamp": "2026-10-15T11:30:18",
+    "camera_id": "cam1",
+    "category": "crowd_incident",
+    "confidence": 0.81,
+    "summary": "Lobby density exceeded safety threshold with 6 people congregating near turnstile exit corridor.",
+    "keyframe_url": "/frames/3.jpg",
+    "track_ids": [112, 114, 115, 118, 120, 121],
+    "latency_ms": 310
+  },
+  {
+    "id": 4,
+    "timestamp": "2026-10-15T13:05:40",
+    "camera_id": "cam2",
+    "category": "suspicious_activity",
+    "confidence": 0.79,
+    "summary": "Individual lingered in the restricted stairwell entrance for over 12 seconds with no badge attempt.",
+    "keyframe_url": "/frames/4.jpg",
+    "track_ids": [133],
+    "latency_ms": 450
+  },
+  {
+    "id": 5,
+    "timestamp": "2026-10-15T14:22:15",
+    "camera_id": "cam1",
+    "category": "fighting",
+    "confidence": 0.86,
+    "summary": "Two persons engaged in physical altercation with aggressive, rapid bounding box collisions.",
+    "keyframe_url": "/frames/5.jpg",
+    "track_ids": [140, 142],
+    "latency_ms": 520
+  },
+  {
+    "id": 6,
+    "timestamp": "2026-10-15T15:10:02",
+    "camera_id": "cam1",
+    "category": "tailgating",
+    "confidence": 0.91,
+    "summary": "Second person followed authorized staff member through server room access door without scanning credentials.",
+    "keyframe_url": "/frames/6.jpg",
+    "track_ids": [155, 156],
+    "latency_ms": 390
+  }
+]

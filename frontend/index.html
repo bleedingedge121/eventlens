@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EventLens | Live Video Event Surveillance</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Header -->
+  <header class="navbar">
+    <div class="brand">
+      <span class="brand-badge">EVENTLENS</span>
+      <h1>Surveillance Operations Console</h1>
+    </div>
+    <div class="system-status">
+      <span class="status-dot"></span>
+      <span id="connection-status">Online (Local Inference)</span>
+    </div>
+    <nav class="nav-links">
+      <a href="index.html" class="active">Live Dashboard</a>
+      <a href="chat.html">Conversational Query</a>
+    </nav>
+  </header>
+
+  <!-- Container -->
+  <main class="container">
+    <!-- Stats Row -->
+    <section class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-label">Events Today</span>
+        <span class="stat-val" id="stat-today">0</span>
+        <span class="stat-detail">Recorded in SQLite</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Avg VLM Latency</span>
+        <span class="stat-val" id="stat-latency">-- ms</span>
+        <span class="stat-detail">Trigger to Summarized</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Total Verified Events</span>
+        <span class="stat-val" id="stat-total">0</span>
+        <span class="stat-detail">Across All Cameras</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Inference Engine</span>
+        <span class="stat-val" style="font-size: 1.25rem; color: var(--accent-cyan);">RTX 5070 Ti</span>
+        <span class="stat-detail">YOLOv11 + Ollama VLM</span>
+      </div>
+    </section>
+
+    <!-- Console Main Split -->
+    <div class="console-grid">
+      <!-- Live Video Feed -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span>●</span> Live Camera Feed
+          </div>
+          <select id="camera-select" class="cam-select">
+            <option value="cam1" selected>Camera 1 - Main Entrance Lobby</option>
+            <option value="cam2">Camera 2 - Office Floor Corridor</option>
+          </select>
+        </div>
+
+        <div class="video-viewport">
+          <img id="live-stream" src="/stream/cam1" alt="Camera Stream" onerror="this.onerror=null; this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'640\' height=\'360\'><rect width=\'100%\' height=\'100%\' fill=\'%230b0f19\'/><text x=\'50%\' y=\'50%\' fill=\'%2364748b\' font-family=\'monospace\' font-size=\'16\' text-anchor=\'middle\'>FEED STANDBY - CLICK START FEED BELOW</text></svg>';">
+          <div class="cam-hud-overlay">
+            <span class="hud-pill" id="hud-cam-id">CAM: cam1</span>
+            <span class="hud-pill" id="hud-timestamp">LIVE</span>
+          </div>
+        </div>
+
+        <div class="source-control-bar">
+          <input type="text" id="source-input" class="source-input" placeholder="Enter video path (e.g. data/videos/test.mp4), RTSP, or '0' for webcam">
+          <button id="start-source-btn" class="btn btn-primary">Start Feed</button>
+        </div>
+      </section>
+
+      <!-- Event Feed Column -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">Classified Event Feed</div>
+          <span style="font-size: 0.8rem; color: var(--text-dim);" id="feed-count">0 items</span>
+        </div>
+
+        <!-- Filter Pills -->
+        <div class="filter-bar">
+          <button class="filter-btn active" data-category="">All</button>
+          <button class="filter-btn" data-category="tailgating">Tailgating</button>
+          <button class="filter-btn" data-category="person_down">Person Down</button>
+          <button class="filter-btn" data-category="fighting">Fighting</button>
+          <button class="filter-btn" data-category="crowd_incident">Crowd</button>
+          <button class="filter-btn" data-category="suspicious_activity">Suspicious</button>
+        </div>
+
+        <!-- Events Container -->
+        <div class="events-list" id="events-container">
+          <div style="padding: 24px; text-align: center; color: var(--text-dim);">
+            Loading events...
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Keyframe Preview Modal -->
+  <div class="modal-overlay" id="keyframe-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title" style="font-size: 1rem;">Event Keyframe</h3>
+        <button id="modal-close-btn" class="btn" style="padding: 2px 8px;">✕</button>
+      </div>
+      <div class="modal-body">
+        <img id="modal-img" src="" alt="Keyframe Preview">
+        <div id="modal-desc" style="margin-top: 12px; font-size: 0.9rem; color: var(--text-muted);"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>

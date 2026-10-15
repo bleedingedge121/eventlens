@@ -1,0 +1,58 @@
+{
+  "cam1": {
+    "name": "Main Entrance Lobby",
+    "description": "Monitors entrance turnstiles, main access door and vestibule",
+    "door_zone": [
+      [180, 240],
+      [420, 240],
+      [420, 480],
+      [180, 480]
+    ],
+    "restricted_zones": [
+      {
+        "name": "Restricted Server Room Corridor",
+        "polygon": [
+          [500, 100],
+          [620, 100],
+          [620, 350],
+          [500, 350]
+        ],
+        "max_loitering_seconds": 6
+      }
+    ],
+    "crowd_threshold": 4,
+    "tailgating_time_window_seconds": 1.5,
+    "person_down_aspect_ratio_threshold": 1.15,
+    "person_down_still_seconds": 3.0,
+    "fighting_overlap_iou": 0.45,
+    "fighting_speed_threshold_pixels_per_sec": 120.0
+  },
+  "cam2": {
+    "name": "Office Floor Corridor",
+    "description": "Hallway camera monitoring common areas and elevator lobby",
+    "door_zone": [
+      [100, 200],
+      [300, 200],
+      [300, 450],
+      [100, 450]
+    ],
+    "restricted_zones": [
+      {
+        "name": "Emergency Exit Stairwell",
+        "polygon": [
+          [450, 50],
+          [580, 50],
+          [580, 300],
+          [450, 300]
+        ],
+        "max_loitering_seconds": 8
+      }
+    ],
+    "crowd_threshold": 5,
+    "tailgating_time_window_seconds": 2.0,
+    "person_down_aspect_ratio_threshold": 1.15,
+    "person_down_still_seconds": 3.0,
+    "fighting_overlap_iou": 0.45,
+    "fighting_speed_threshold_pixels_per_sec": 110.0
+  }
+}

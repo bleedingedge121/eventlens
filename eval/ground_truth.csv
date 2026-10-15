@@ -1,0 +1,14 @@
+clip_name,category,start_sec,description
+clip_tailgating_01.mp4,tailgating,4.2,Two persons entered turnstile on one badge swipe
+clip_tailgating_02.mp4,tailgating,2.8,Rapid successive door crossing without second scan
+clip_tailgating_03.mp4,tailgating,5.0,Unauthorized follower directly behind employee
+clip_persondown_01.mp4,person_down,3.5,Individual slipped and fell on wet lobby tile
+clip_persondown_02.mp4,person_down,6.1,Person collapsed near elevator landing
+clip_fighting_01.mp4,fighting,4.0,Physical tussle and scuffle between two individuals
+clip_fighting_02.mp4,fighting,7.5,Aggressive altercation with rapid hand movements
+clip_crowd_01.mp4,crowd_incident,2.0,Congestion of 6 people at exit corridor
+clip_crowd_02.mp4,crowd_incident,4.5,Corridor blockage exceeding safety limit
+clip_loitering_01.mp4,suspicious_activity,8.0,Prolonged unauthorized dwell time in server hallway
+clip_normal_01.mp4,none,0.0,Single employee entering through turnstile normally
+clip_normal_02.mp4,none,0.0,Cleaning staff walking through hallway with cart
+clip_normal_03.mp4,none,0.0,Routine foot traffic at reception desk

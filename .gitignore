@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & Linting
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# HackHive Project Data (AGENTS.md Section 4: data/ NOT in git)
+data/
+data/*
+!data/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+events.db
+
+# Video & Frame artifacts
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.jpg
+*.jpeg
+*.png
+!frontend/assets/*
+
+# Model Weights
+*.pt
+*.pth
+*.onnx
+*.engine
+*.bin
+*.safetensors
+yolo*.pt
+
+# Environment & Secrets
+.env
+.env.local
+*.local
+
+# IDEs & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+
+# Antigravity temporary data
+.system_generated/
