@@ -39,6 +39,12 @@
         <span class="kbd-hint">M</span>
       </button>
 
+      <!-- Intelligence Report Generator Button -->
+      <button id="open-report" class="btn btn--primary" title="Generate Comprehensive Security Intelligence Report" style="padding: 6px 12px; font-size: 0.78rem;">
+        <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+        <span>Report</span>
+      </button>
+
       <!-- System Telemetry Pulse -->
       <div class="system-status" aria-live="polite">
         <span class="status-indicator" aria-hidden="true"></span>
@@ -302,6 +308,52 @@
         </div>
       </section>
     </div>
+
+    <!-- Activity Timeline Panel -->
+    <section class="console-panel timeline-panel" aria-label="Activity Timeline">
+      <div class="panel-header">
+        <div class="panel-title-group">
+          <svg class="icon-svg" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 9l-5 5-4-4-6 6"/></svg>
+          <h2 class="panel-title">Activity Timeline</h2>
+          <span class="panel-subtitle">Temporal incident distribution; height = model confidence</span>
+        </div>
+        <div class="timeline-legend">
+          <span class="legend-item"><span class="legend-dot dot--baseline"></span>Baseline</span>
+          <span class="legend-item"><span class="legend-dot dot--incident"></span>Verified Incident</span>
+          <span class="legend-item"><span class="legend-dot dot--low-conf"></span>Low Confidence (&lt;60%)</span>
+        </div>
+      </div>
+      <div class="panel-body timeline-body">
+        <div class="chart-container" id="timeline"></div>
+      </div>
+    </section>
+    <div class="timeline-tooltip" id="tip" role="tooltip" hidden></div>
+
+    <!-- Distribution Section -->
+    <section class="distribution-grid" aria-label="Incident Distribution">
+      <div class="console-panel distribution-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <svg class="icon-svg" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+            <h2 class="panel-title">Incidents by Category</h2>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="bars-container" id="bars-cat"></div>
+        </div>
+      </div>
+      <div class="console-panel distribution-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <svg class="icon-svg" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+            <h2 class="panel-title">Incidents by Camera</h2>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="bars-container" id="bars-cam"></div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <!-- Incident Details Modal -->
@@ -374,6 +426,79 @@
       </div>
     </div>
   </dialog>
+
+  <!-- Intelligence Report Generation Modal -->
+  <dialog class="modal modal--wide" id="report-modal" aria-modal="true" aria-labelledby="rep-title">
+    <div class="modal-content">
+      <header class="modal-header">
+        <div class="modal-header-content">
+          <h3 id="rep-title">Generate Intelligence Report</h3>
+        </div>
+        <button class="modal-close" id="rep-close" aria-label="Close modal (Esc)">
+          <svg class="icon-svg" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </header>
+
+      <form id="rep-form" class="report-form" autocomplete="off">
+        <h4>Operational Security Report Configuration</h4>
+        <p class="muted-text">Select reporting period, cameras, incident categories and level of detail for export.</p>
+        <div class="form-row-2">
+          <label class="form-field">
+            <span>Reporting Period</span>
+            <select id="rp-period" class="select-input">
+              <option value="900000">Last 15 minutes</option>
+              <option value="3600000">Last hour</option>
+              <option value="86400000" selected>Last 24 hours</option>
+              <option value="today">Today</option>
+              <option value="custom">Custom range</option>
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Detail Level</span>
+            <select id="rp-detail" class="select-input">
+              <option value="overview">Executive overview</option>
+              <option value="standard" selected>Standard operational report</option>
+              <option value="full">Comprehensive investigation report</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row-2" id="rp-custom" hidden>
+          <label class="form-field">
+            <span>From</span>
+            <input type="datetime-local" id="rp-from" class="text-input">
+          </label>
+          <label class="form-field">
+            <span>To</span>
+            <input type="datetime-local" id="rp-to" class="text-input">
+          </label>
+        </div>
+        <fieldset class="report-fieldset">
+          <legend>Monitored Cameras</legend>
+          <div class="checks-grid" id="rp-cams"></div>
+        </fieldset>
+        <fieldset class="report-fieldset">
+          <legend>Event Categories</legend>
+          <div class="checks-grid" id="rp-cats"></div>
+        </fieldset>
+        <fieldset class="report-fieldset">
+          <legend>Included Sections</legend>
+          <div class="checks-grid" id="rp-secs"></div>
+        </fieldset>
+        <label class="form-field">
+          <span>Additional Investigator Instructions</span>
+          <textarea id="rp-notes" class="text-input" rows="3" placeholder="Describe any specific incidents, patterns, or questions for the local AI narrative to analyze..."></textarea>
+        </label>
+        <div class="modal-actions" style="margin-top:12px;">
+          <button type="submit" class="btn btn--primary" id="rp-go">Generate Report</button>
+        </div>
+      </form>
+
+      <div id="rep-view" class="report-view" hidden></div>
+    </div>
+  </dialog>
+
+  <!-- Toast Notifications Container -->
+  <div class="toasts" id="toasts" aria-live="polite"></div>
 
   <script type="module" src="dashboard.js"></script>
 </body>

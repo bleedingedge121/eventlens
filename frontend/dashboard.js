@@ -30,11 +30,11 @@
 
   // Category metadata for UI
   const CATEGORY_META = {
-    tailgating: { label: 'Tailgating', severity: 'warning', badgeClass: 'badge--tailgating' },
-    person_down: { label: 'Person Down', severity: 'critical', badgeClass: 'badge--person_down' },
-    fighting: { label: 'Fighting', severity: 'critical', badgeClass: 'badge--fighting' },
-    crowd_incident: { label: 'Crowd', severity: 'warning', badgeClass: 'badge--crowd_incident' },
-    suspicious_activity: { label: 'Suspicious', severity: 'notice', badgeClass: 'badge--suspicious_activity' }
+    tailgating: { label: 'Tailgating', color: '#f59e0b', severity: 'warning', badgeClass: 'badge--tailgating' },
+    person_down: { label: 'Person Down', color: '#f43f5e', severity: 'critical', badgeClass: 'badge--person_down' },
+    fighting: { label: 'Fighting', color: '#ff5722', severity: 'critical', badgeClass: 'badge--fighting' },
+    crowd_incident: { label: 'Crowd', color: '#818cf8', severity: 'warning', badgeClass: 'badge--crowd_incident' },
+    suspicious_activity: { label: 'Suspicious', color: '#38bdf8', severity: 'notice', badgeClass: 'badge--suspicious_activity' }
   };
 
   // ============ DOM REFERENCES ============
@@ -84,6 +84,28 @@
     },
     confidenceFilter: $('#confidence-filter'),
     eventFeed: $('#event-feed'),
+
+    timeline: $('#timeline'),
+    tip: $('#tip'),
+    barsCat: $('#bars-cat'),
+    barsCam: $('#bars-cam'),
+    toasts: $('#toasts'),
+
+    openReportBtn: $('#open-report'),
+    reportModal: $('#report-modal'),
+    reportClose: $('#rep-close'),
+    reportForm: $('#rep-form'),
+    reportView: $('#rep-view'),
+    rpPeriod: $('#rp-period'),
+    rpCustom: $('#rp-custom'),
+    rpFrom: $('#rp-from'),
+    rpTo: $('#rp-to'),
+    rpCams: $('#rp-cams'),
+    rpCats: $('#rp-cats'),
+    rpSecs: $('#rp-secs'),
+    rpDetail: $('#rp-detail'),
+    rpNotes: $('#rp-notes'),
+    rpGo: $('#rp-go'),
 
     modal: $('#event-modal'),
     modalClose: $('#modal-close'),
@@ -304,6 +326,9 @@
           <div class="spinner"></div>
           <span>${currentEvents.length ? 'No incidents match current filter criteria.' : 'No incidents recorded yet. Start camera ingestion to begin.'}</span>
         </div>`;
+      renderTimeline([]);
+      renderBars('#bars-cat', [], e => e.category, c => CATEGORY_META[c]?.label || c, c => CATEGORY_META[c]?.color || 'var(--accent-cyan)');
+      renderBars('#bars-cam', [], e => e.camera_id, id => id.toUpperCase(), () => 'var(--accent-cyan)');
       return;
     }
 
@@ -353,6 +378,556 @@
           handler();
         }
       });
+    });
+
+    // Render Timeline & Distribution Bars
+    renderTimeline(filtered);
+    renderBars('#bars-cat', filtered, e => e.category, c => CATEGORY_META[c]?.label || c, c => CATEGORY_META[c]?.color || 'var(--accent-cyan)');
+    renderBars('#bars-cam', filtered, e => e.camera_id, id => id.toUpperCase(), () => 'var(--accent-cyan)');
+  }
+
+  // ============ TOAST NOTIFICATIONS ============
+  function showToast(msg, isErr = false) {
+    const toasts = els.toasts || $('#toasts');
+    if (!toasts) return;
+    const t = document.createElement('div');
+    t.className = 'toast' + (isErr ? ' toast--err' : '');
+    t.textContent = msg;
+    toasts.appendChild(t);
+    setTimeout(() => {
+      t.style.opacity = '0';
+      t.style.transform = 'translateX(20px)';
+      t.style.transition = 'all 0.3s ease';
+      setTimeout(() => t.remove(), 300);
+    }, 4000);
+  }
+
+  // ============ TIMELINE & DISTRIBUTION CHARTS ============
+  function renderTimeline(events) {
+    if (!els.timeline) return;
+    const W = 1000, H = 200, L = 46, R = 20, T = 16, B = 30;
+    const now = Date.now();
+    const timestamps = events.map(e => e.timestamp ? new Date(e.timestamp).getTime() : null).filter(t => t != null);
+    const minT = timestamps.length ? Math.min(...timestamps) : now - 86400000;
+    const maxT = Math.max(now, timestamps.length ? Math.max(...timestamps) : now);
+    const t0 = Math.min(minT, now - 3600000);
+    const t1 = maxT;
+
+    const x = t => L + ((t - t0) / (t1 - t0 || 1)) * (W - L - R);
+    const y = c => T + (1 - (c ?? 0)) * (H - T - B);
+
+    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Event timeline: ${events.length} events">`;
+
+    [1.0, 0.5, 0.0].forEach(c => {
+      s += `<line x1="${L}" x2="${W - R}" y1="${y(c)}" y2="${y(c)}" stroke="#24334a" stroke-dasharray="${c > 0 ? '3 4' : ''}" stroke-width="1"/>
+            <text x="${L - 8}" y="${y(c) + 4}" text-anchor="end">${Math.round(c * 100)}%</text>`;
+    });
+
+    s += `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="#10b981" stroke-width="2"/>`;
+
+    for (let i = 0; i <= 5; i++) {
+      const t = t0 + (t1 - t0) * (i / 5);
+      const label = new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      s += `<text x="${x(t)}" y="${H - 8}" text-anchor="${i === 0 ? 'start' : i === 5 ? 'end' : 'middle'}">${label}</text>`;
+    }
+
+    if (!events.length) {
+      s += `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#64748b">No incidents in this view range</text>`;
+    } else {
+      events.forEach(e => {
+        const c = typeof e.confidence === 'number' ? e.confidence : 0.5;
+        const t = e.timestamp ? new Date(e.timestamp).getTime() : now;
+        const low = c < 0.6;
+        const col = low ? '#f59e0b' : (CATEGORY_META[e.category]?.color || '#f43f5e');
+        s += `<g class="mk" tabindex="0" role="button" data-id="${e.id}" aria-label="${e.category} at ${formatTime(e.timestamp)} on ${e.camera_id}">
+          <line x1="${x(t)}" x2="${x(t)}" y1="${y(0)}" y2="${y(c)}" stroke="${col}" stroke-opacity="0.4" stroke-width="1.5"/>
+          <circle cx="${x(t)}" cy="${y(c)}" r="6" fill="${col}" stroke="#0c121e" stroke-width="2"/>
+        </g>`;
+      });
+    }
+
+    s += '</svg>';
+    els.timeline.innerHTML = s;
+  }
+
+  function initTimelineInteractions() {
+    if (!els.timeline || !els.tip) return;
+    els.timeline.addEventListener('mouseover', e => {
+      const g = e.target.closest('.mk');
+      if (g) showTimelineTip(g);
+    });
+    els.timeline.addEventListener('mousemove', e => {
+      if (!els.tip.hidden) positionTimelineTip(e.clientX, e.clientY);
+    });
+    els.timeline.addEventListener('mouseout', () => {
+      els.tip.hidden = true;
+    });
+    els.timeline.addEventListener('click', e => {
+      const g = e.target.closest('.mk');
+      if (g && g.dataset.id) {
+        openModal(Number(g.dataset.id));
+      }
+    });
+  }
+
+  function showTimelineTip(g) {
+    const ev = currentEvents.find(x => String(x.id) === String(g.dataset.id));
+    if (!ev || !els.tip) return;
+    const catLabel = CATEGORY_META[ev.category]?.label || ev.category;
+    els.tip.innerHTML = `
+      <b>${formatTimestamp(ev.timestamp)} // ${escapeHtml(ev.camera_id.toUpperCase())}</b>
+      <div>Incident: <b>${escapeHtml(catLabel)}</b> (${((ev.confidence || 0) * 100).toFixed(0)}%)</div>
+      <div style="margin-top:4px; font-size:0.75rem; color:var(--text-secondary);">${escapeHtml(ev.summary || '').slice(0, 120)}</div>
+    `;
+    els.tip.hidden = false;
+  }
+
+  function positionTimelineTip(px, py) {
+    if (!els.tip) return;
+    const r = els.tip.getBoundingClientRect();
+    els.tip.style.left = Math.min(px + 14, window.innerWidth - r.width - 12) + 'px';
+    els.tip.style.top = Math.max(8, Math.min(py + 14, window.innerHeight - r.height - 12)) + 'px';
+  }
+
+  function renderBars(sel, events, keyFn, labelFn, colFn) {
+    const container = $(sel);
+    if (!container) return;
+    const counts = {};
+    events.forEach(e => {
+      const k = keyFn(e);
+      counts[k] = (counts[k] || 0) + 1;
+    });
+    const keys = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+    const maxVal = Math.max(1, ...Object.values(counts));
+
+    if (!keys.length) {
+      container.innerHTML = '<div style="color:var(--text-muted); font-size:0.78rem;">No data for current filters.</div>';
+      return;
+    }
+
+    container.innerHTML = keys.map(k => {
+      const count = counts[k];
+      const pct = Math.round((count / maxVal) * 100);
+      const col = colFn(k);
+      return `
+        <div class="bar-row">
+          <span>${escapeHtml(labelFn(k))}</span>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:${pct}%; background:${col};"></div>
+          </div>
+          <span>${count}</span>
+        </div>`;
+    }).join('');
+  }
+
+  // ============ REPORT GENERATION MODULE ============
+  const SECS = {
+    overview: 'Report Scope & Overview',
+    summary: 'Executive Summary',
+    stats: 'Operational Incident Breakdown',
+    register: 'Chronological Incident Register',
+    patterns: 'Tactical Trends & Spatial Clustering',
+    limits: 'Audit Assurance & Limitations',
+    perf: 'Technical Latency Metrics',
+    ai: 'AI Intelligence Assessment & Recommendations'
+  };
+
+  function initReportModule() {
+    if (!els.openReportBtn || !els.reportModal) return;
+
+    els.openReportBtn.addEventListener('click', () => {
+      const cams = [...new Set(['cam1', 'cam2', ...currentEvents.map(e => e.camera_id)])];
+      if (els.rpCams) {
+        els.rpCams.innerHTML = cams.map(c => `
+          <label><input type="checkbox" name="cam" value="${escapeHtml(c)}" checked> ${escapeHtml(c.toUpperCase())}</label>
+        `).join('');
+      }
+      if (els.rpCats) {
+        els.rpCats.innerHTML = Object.keys(CATEGORY_META).map(c => `
+          <label><input type="checkbox" name="cat" value="${escapeHtml(c)}" checked> ${escapeHtml(CATEGORY_META[c].label)}</label>
+        `).join('');
+      }
+      if (els.rpSecs) {
+        els.rpSecs.innerHTML = Object.entries(SECS).map(([k, label]) => `
+          <label><input type="checkbox" name="sec" value="${escapeHtml(k)}" checked> ${escapeHtml(label)}</label>
+        `).join('');
+      }
+      if (els.reportForm) els.reportForm.hidden = false;
+      if (els.reportView) els.reportView.hidden = true;
+      els.reportModal.showModal();
+    });
+
+    if (els.reportClose) {
+      els.reportClose.addEventListener('click', () => els.reportModal.close());
+    }
+    els.reportModal.addEventListener('click', e => {
+      if (e.target === els.reportModal) els.reportModal.close();
+    });
+
+    if (els.rpPeriod) {
+      els.rpPeriod.addEventListener('change', e => {
+        if (els.rpCustom) els.rpCustom.hidden = e.target.value !== 'custom';
+      });
+    }
+
+    if (els.reportForm) {
+      els.reportForm.addEventListener('submit', async ev => {
+        ev.preventDefault();
+        const p = els.rpPeriod.value;
+        let from, to = Date.now();
+        if (p === 'today') {
+          from = new Date().setHours(0, 0, 0, 0);
+        } else if (p === 'custom') {
+          from = Date.parse(els.rpFrom.value);
+          to = Date.parse(els.rpTo.value);
+        } else {
+          from = to - parseInt(p, 10);
+        }
+
+        if (isNaN(from) || isNaN(to) || from >= to) {
+          showToast('Please specify a valid reporting period.', true);
+          return;
+        }
+
+        const getChecked = name => [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(i => i.value);
+        const cams = getChecked('cam');
+        const cats = getChecked('cat');
+        const secs = getChecked('sec');
+
+        if (!cams.length || !cats.length) {
+          showToast('Select at least one camera and one event category.', true);
+          return;
+        }
+
+        const submitBtn = els.rpGo;
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Retrieving incidents…';
+        }
+
+        try {
+          const res = await fetch(`/api/events?limit=5000&since=${encodeURIComponent(new Date(from).toISOString())}`);
+          const data = await res.json();
+          const all = data.events || [];
+          const evs = all.filter(e => {
+            const t = e.timestamp ? new Date(e.timestamp).getTime() : 0;
+            return t >= from && t <= to && cams.includes(e.camera_id) && cats.includes(e.category);
+          }).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+          if (submitBtn) submitBtn.textContent = 'Synthesizing report…';
+          const cfg = {
+            from, to, cams, cats, secs,
+            detail: els.rpDetail.value,
+            notes: (els.rpNotes.value || '').trim()
+          };
+
+          const reportSections = await buildReport(evs, cfg);
+          showReportView(reportSections, evs, cfg);
+        } catch (err) {
+          showToast(`Report generation failed: ${err.message}`, true);
+        } finally {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Generate Report';
+          }
+        }
+      });
+    }
+  }
+
+  async function aiNarrative(evs, cfg) {
+    const rec = evs.slice(-60).map(e => ({
+      id: e.id,
+      time: e.timestamp,
+      camera: e.camera_id,
+      category: e.category,
+      confidence: e.confidence,
+      summary: e.summary
+    }));
+    const prompt = `Using ONLY the event records below, write a ${cfg.detail === 'full' ? 'detailed' : 'concise'} security intelligence analysis with: executive summary, notable tactical patterns, and prioritized follow-up actions. Do not invent events. ${cfg.notes ? 'Operator guidance: ' + cfg.notes + '. ' : ''}Records (${rec.length} of ${evs.length}): ${JSON.stringify(rec)}`;
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: prompt })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data.answer || 'No narrative generated.';
+  }
+
+  async function buildReport(evs, cfg) {
+    const n = evs.length;
+    const lats = evs.map(e => e.latency_ms).filter(x => typeof x === 'number');
+    const lows = evs.filter(e => (e.confidence ?? 1) < 0.6);
+    const has = k => cfg.secs.includes(k);
+    const isFull = cfg.detail === 'full';
+    const isOverview = cfg.detail === 'overview';
+
+    let ai = null, aiErr = null;
+    if (has('ai') && n > 0) {
+      try {
+        ai = await aiNarrative(evs, cfg);
+      } catch (e) {
+        aiErr = e.message;
+      }
+    }
+
+    const byCat = {}, byCam = {};
+    evs.forEach(e => {
+      byCat[e.category] = (byCat[e.category] || 0) + 1;
+      byCam[e.camera_id] = (byCam[e.camera_id] || 0) + 1;
+    });
+
+    const topCat = Object.entries(byCat).sort((a, b) => b[1] - a[1])[0];
+    const topCam = Object.entries(byCam).sort((a, b) => b[1] - a[1])[0];
+
+    const sec = [];
+
+    // Overview
+    sec.push([
+      'overview', 'Report Scope & Overview',
+      `<div class="report-fact">
+        <p><b>Reporting Window:</b> ${formatTimestamp(new Date(cfg.from).toISOString())} \u2192 ${formatTimestamp(new Date(cfg.to).toISOString())}<br>
+        <b>Cameras Monitored:</b> ${cfg.cams.map(c => c.toUpperCase()).join(', ')}<br>
+        <b>Categories Filtered:</b> ${cfg.cats.map(c => CATEGORY_META[c]?.label || c).join(', ')}<br>
+        <b>Generated:</b> ${formatTimestamp(new Date().toISOString())}<br>
+        <b>Total Incidents Analyzed:</b> <b>${n}</b></p>
+      </div>
+      ${cfg.notes ? `<p class="muted-text" style="margin-top:6px;"><b>Operator Guidance:</b> ${escapeHtml(cfg.notes)}</p>` : ''}`
+    ]);
+
+    // Summary
+    sec.push([
+      'summary', 'Executive Summary',
+      n ? `<div class="report-fact">
+            <p>During this period, <b>${n}</b> security incident${n > 1 ? 's were' : ' was'} verified by the VLM pipeline.
+            Predominant incident class: <b>${escapeHtml(topCat ? (CATEGORY_META[topCat[0]]?.label || topCat[0]) : 'None')}</b> (${topCat ? topCat[1] : 0} events).
+            <b>${lows.length}</b> events registered low confidence (&lt;60%) and are marked for manual operator verification.</p>
+           </div>
+           ${ai && isOverview ? `<div class="report-ai-block"><span class="ai-badge">Ollama Intelligence Synthesis</span>${escapeHtml(ai)}</div>` : ''}`
+        : `<p class="muted-text">No incidents recorded matching the selected filter scope during this time window.</p>`
+    ]);
+
+    // Operational Stats
+    if (!isOverview && has('stats') && n) {
+      const catTable = `
+        <table class="report-table">
+          <thead><tr><th>Category</th><th>Events</th><th>Ratio</th></tr></thead>
+          <tbody>${Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([c, count]) => `
+            <tr>
+              <td>${escapeHtml(CATEGORY_META[c]?.label || c)}</td>
+              <td class="mono-cell">${count}</td>
+              <td class="mono-cell">${((count / n) * 100).toFixed(1)}%</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`;
+      const camTable = `
+        <table class="report-table">
+          <thead><tr><th>Camera</th><th>Events</th><th>Ratio</th></tr></thead>
+          <tbody>${Object.entries(byCam).sort((a, b) => b[1] - a[1]).map(([cam, count]) => `
+            <tr>
+              <td>${escapeHtml(cam.toUpperCase())}</td>
+              <td class="mono-cell">${count}</td>
+              <td class="mono-cell">${((count / n) * 100).toFixed(1)}%</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`;
+      sec.push(['stats', 'Operational Incident Breakdown', `<div class="form-row-2"><div>${catTable}</div><div>${camTable}</div></div>`]);
+    }
+
+    // Incident Register
+    if (!isOverview && has('register') && n) {
+      sec.push([
+        'register', 'Chronological Incident Register',
+        `<table class="report-table">
+          <thead><tr><th>Time</th><th>Camera</th><th>Category</th><th>Confidence</th><th>Summary</th><th>ID</th></tr></thead>
+          <tbody>${evs.map(e => `
+            <tr>
+              <td class="mono-cell">${formatTimestamp(e.timestamp)}</td>
+              <td class="mono-cell">${escapeHtml(e.camera_id.toUpperCase())}</td>
+              <td><span class="badge ${CATEGORY_META[e.category]?.badgeClass || ''}">${escapeHtml(CATEGORY_META[e.category]?.label || e.category)}</span></td>
+              <td class="mono-cell">${((e.confidence || 0) * 100).toFixed(0)}%</td>
+              <td>${escapeHtml(e.summary || '')}</td>
+              <td class="mono-cell"><a href="${e.keyframe_url || `/frames/${e.id}.jpg`}" target="_blank" style="color:var(--accent-cyan);">#${e.id}</a></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`
+      ]);
+    }
+
+    // Trends & Patterns
+    if (!isOverview && has('patterns') && n) {
+      sec.push([
+        'patterns', 'Tactical Trends & Spatial Clustering',
+        `<div class="report-fact">
+          <p>Primary incident concentration identified on <b>${escapeHtml(topCam ? topCam[0].toUpperCase() : 'N/A')}</b> (${topCam ? topCam[1] : 0} events).
+          Primary anomaly type: <b>${escapeHtml(topCat ? (CATEGORY_META[topCat[0]]?.label || topCat[0]) : 'N/A')}</b>.</p>
+        </div>`
+      ]);
+    }
+
+    // Limitations
+    if (has('limits')) {
+      sec.push([
+        'limits', 'Audit Assurance & Limitations',
+        `<ul>
+          <li><b>${lows.length}</b> incident(s) scored confidence &lt;60% and require secondary human officer review.</li>
+          <li>All event summaries and classifications are generated offline via local vision-language inference and should be validated against recorded keyframes.</li>
+          <li>System stores event triggers only; continuous benign footage is intentionally not recorded per privacy compliance constraints.</li>
+        </ul>`
+      ]);
+    }
+
+    // Latency stats
+    if (has('perf') && lats.length) {
+      const sorted = [...lats].sort((a, b) => a - b);
+      const mean = Math.round(lats.reduce((a, b) => a + b, 0) / lats.length);
+      const median = Math.round(sorted[Math.floor(sorted.length / 2)]);
+      const p95 = Math.round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]);
+      sec.push([
+        'perf', 'Technical Latency Metrics',
+        `<p style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-secondary);">
+          Trigger \u2192 Database latency across ${lats.length} incidents: Mean: <b>${mean} ms</b> | Median: <b>${median} ms</b> | 95th Percentile: <b>${p95} ms</b>.
+        </p>`
+      ]);
+    }
+
+    // AI Narrative
+    if (!isOverview && ai) {
+      sec.push([
+        'ai', 'AI Intelligence Assessment & Recommendations',
+        `<div class="report-ai-block"><span class="ai-badge">Ollama Multimodal Synthesis</span>${escapeHtml(ai)}</div>
+         ${n > 60 ? '<p class="muted-text" style="margin-top:6px; font-size:0.75rem;">* Note: The AI synthesis evaluated the 60 most recent incident records to fit local context budgets.</p>' : ''}`
+      ]);
+    } else if (has('ai') && aiErr) {
+      sec.push(['ai', 'AI Intelligence Assessment', `<p class="muted-text">AI narrative unavailable (${escapeHtml(aiErr)}). Operational metrics and logs remain fully verified.</p>`]);
+    }
+
+    // Appendix
+    if (isFull && n) {
+      sec.push([
+        'appx', 'Audit Appendix',
+        `<p style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted);">
+          Recorded Incident IDs: ${evs.map(e => '#' + e.id).join(', ')}
+        </p>`
+      ]);
+    }
+
+    return sec;
+  }
+
+  function showReportView(sections, evs, cfg) {
+    if (!els.reportView || !els.reportForm) return;
+    els.reportForm.hidden = true;
+    els.reportView.hidden = false;
+
+    const downloadFile = (name, type, content) => {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+
+    els.reportView.innerHTML = `
+      <div>
+        <h2 class="rep-title">EventLens Security Intelligence Report</h2>
+        <div class="report-meta-header">
+          <span>${formatTimestamp(new Date(cfg.from).toISOString())} \u2192 ${formatTimestamp(new Date(cfg.to).toISOString())}</span>
+          <span>\u2022</span>
+          <span>${evs.length} incidents</span>
+          <span>\u2022</span>
+          <span style="text-transform:capitalize;">${escapeHtml(cfg.detail)} Report</span>
+        </div>
+      </div>
+
+      <nav class="report-toc" aria-label="Report Table of Contents">
+        ${sections.map(([id, title]) => `<a href="#rep-sec-${id}">${escapeHtml(title)}</a>`).join('')}
+      </nav>
+
+      ${sections.map(([id, title, contentHtml]) => `
+        <section id="rep-sec-${id}">
+          <h3>${escapeHtml(title)}</h3>
+          ${contentHtml}
+        </section>
+      `).join('')}
+
+      <div class="report-actions">
+        <button class="btn btn--secondary" id="btn-copy-rep">
+          <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          Copy Text
+        </button>
+        <button class="btn btn--secondary" id="btn-export-csv">
+          <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          Export CSV
+        </button>
+        <button class="btn btn--secondary" id="btn-export-json">
+          <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          Export JSON
+        </button>
+        <button class="btn btn--secondary" id="btn-print-rep">
+          <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+          Print / PDF
+        </button>
+        <button class="btn btn--primary" id="btn-rep-revise">Revise Parameters</button>
+        <button class="btn" id="btn-rep-done">Done</button>
+      </div>
+    `;
+
+    // Hook TOC navigation
+    els.reportView.querySelectorAll('.report-toc a').forEach(a => {
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        const target = els.reportView.querySelector(a.getAttribute('href'));
+        if (target) target.scrollIntoView({ behavior: 'smooth' });
+      });
+    });
+
+    // Hook Action buttons
+    $('#btn-copy-rep', els.reportView).addEventListener('click', () => {
+      navigator.clipboard.writeText(els.reportView.innerText)
+        .then(() => showToast('Report text copied to clipboard'))
+        .catch(() => showToast('Copy failed', true));
+    });
+
+    $('#btn-export-csv', els.reportView).addEventListener('click', () => {
+      const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const header = 'id,timestamp,camera_id,category,confidence,latency_ms,summary\n';
+      const rows = evs.map(e => [
+        e.id,
+        e.timestamp,
+        e.camera_id,
+        e.category,
+        e.confidence,
+        e.latency_ms,
+        e.summary
+      ].map(q).join(',')).join('\n');
+      downloadFile(`eventlens_report_${Date.now()}.csv`, 'text/csv', header + rows);
+      showToast('CSV report exported');
+    });
+
+    $('#btn-export-json', els.reportView).addEventListener('click', () => {
+      downloadFile(`eventlens_report_${Date.now()}.json`, 'application/json', JSON.stringify({
+        meta: cfg,
+        total_events: evs.length,
+        events: evs
+      }, null, 2));
+      showToast('JSON report exported');
+    });
+
+    $('#btn-print-rep', els.reportView).addEventListener('click', () => {
+      window.print();
+    });
+
+    $('#btn-rep-revise', els.reportView).addEventListener('click', () => {
+      els.reportView.hidden = true;
+      els.reportForm.hidden = false;
+    });
+
+    $('#btn-rep-done', els.reportView).addEventListener('click', () => {
+      els.reportModal.close();
     });
   }
 
@@ -624,10 +1199,25 @@
 
     // Snapshot download
     els.snapshotBtn.addEventListener('click', () => {
-      const link = document.createElement('a');
-      link.download = `eventlens_${currentCamera}_${Date.now()}.jpg`;
-      link.href = els.streamImg.src;
-      link.click();
+      try {
+        const img = els.streamImg;
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || 640;
+        canvas.height = img.naturalHeight || 360;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const link = document.createElement('a');
+        link.download = `eventlens_${currentCamera}_${Date.now()}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        showToast(`Captured snapshot on ${currentCamera.toUpperCase()}`);
+      } catch {
+        const link = document.createElement('a');
+        link.download = `eventlens_${currentCamera}_${Date.now()}.jpg`;
+        link.href = els.streamImg.src;
+        link.click();
+        showToast(`Captured frame on ${currentCamera.toUpperCase()}`);
+      }
     });
 
     // Fullscreen toggle
@@ -646,6 +1236,10 @@
       if (e.target === els.modal) closeModal();
     });
 
+    // Initialize Timeline Interactions & Report Module
+    initTimelineInteractions();
+    initReportModule();
+
     // Clear incidents feed
     if (els.clearEventsBtn) {
       els.clearEventsBtn.addEventListener('click', async () => {
@@ -656,9 +1250,11 @@
             currentEvents = [];
             renderEvents();
             fetchStats();
+            showToast('All recorded incidents cleared');
           }
         } catch (err) {
           console.error('[EventLens] Failed to clear incidents:', err);
+          showToast('Failed to clear incidents', true);
         }
       });
     }
@@ -678,12 +1274,14 @@
         if (e.key === 'Escape') {
           e.target.blur();
           if (els.modal.open) closeModal();
+          if (els.reportModal && els.reportModal.open) els.reportModal.close();
         }
         return;
       }
 
-      if (e.key === 'Escape' && els.modal.open) {
-        closeModal();
+      if (e.key === 'Escape') {
+        if (els.modal.open) closeModal();
+        if (els.reportModal && els.reportModal.open) els.reportModal.close();
       } else if (e.key === '/' || e.key === '?') {
         e.preventDefault();
         els.eventSearch.focus();
