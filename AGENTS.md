@@ -20,22 +20,18 @@ Deliverables: a working prototype that processes a live or simulated stream, rec
 - Environment: Windows, PowerShell, Python 3.11 or 3.12, Ollama installed locally.
 - The team is mostly beginners using AI to write code. Keep everything simple, readable and runnable.
 
-## 3. Team and ownership
+## 3. Project Structure and Guidelines
 
-Four people: 2 backend, 2 frontend. Each person edits ONLY their own paths.
+The codebase is organized into modular paths for clean separation of concerns:
+- `backend/vision/`: Video ingestion, YOLOv11 detection, ByteTrack tracking, rule-based event triggers.
+- `backend/server/`: FastAPI server, SQLite database, Ollama VLM integration, text-to-SQL conversational engine.
+- `frontend/`: Operations dashboard, live MJPEG feed, conversational querying interface.
+- `eval/`: Benchmark scenarios, ground truth CSV, automated precision/recall and latency testing.
 
-| Role | Person | Owns |
-|---|---|---|
-| Backend A: Vision | John (also repo owner, runs the demo laptop) | backend/vision/ |
-| Backend B: Server, DB, VLM, chat | Person B | backend/server/ |
-| Frontend 1: Dashboard, then slides | Person C | frontend/index.html, frontend/dashboard.js, frontend/styles.css, docs/ |
-| Frontend 2: Chat, then evaluation | Person D | frontend/chat.html, frontend/chat.js, eval/ |
-
-Agent rules about ownership:
-1. At the start of a session, find out which role the user has. If unknown, ask.
-2. Edit only files in that role's paths. If a change is needed elsewhere, describe it in a short note for the user to pass to the owner. Do not make the edit.
-3. Never change the API contract (section 8) or database schema (section 9) alone. Tell the user the change must be agreed with the whole team first.
-4. Shared files (README.md, requirements.txt, .gitignore, this file) are edited only by John's agent. Others propose changes by message.
+Development guidelines:
+1. Maintain the frozen API contract (section 8) and database schema (section 9).
+2. Keep code simple, readable, and runnable on local hardware.
+3. Keep living documentation updated as new features are built.
 
 ## 4. Repo layout
 

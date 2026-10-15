@@ -129,16 +129,5 @@ Benchmark results on Lenovo Legion RTX 5070 Ti:
 
 ---
 
-## 👥 Team Roles & Ownership
-
-| Role | Person | Owned Directories |
-|---|---|---|
-| **Backend A: Vision** | John (Repo Owner, Demo Laptop) | `backend/vision/`, shared configs |
-| **Backend B: Server & Chat** | Person B | `backend/server/` |
-| **Frontend 1: Dashboard** | Person C | `frontend/index.html`, `dashboard.js`, `styles.css`, `docs/` |
-| **Frontend 2: Chat & Eval** | Person D | `frontend/chat.html`, `chat.js`, `eval/` |
-
----
-
 ## 📄 License
 This project is licensed under the [MIT License](LICENSE).
