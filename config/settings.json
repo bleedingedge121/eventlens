@@ -1,13 +1,13 @@
 {
   "ollama": {
     "host": "http://localhost:11434",
-    "vlm_model": "qwen2.5-vl:7b",
-    "vlm_fallback_model": "Hermes-4-14B:latest",
+    "vlm_model": "qwen3-vl:4b-instruct",
+    "vlm_fallback_model": "gemma3:4b",
     "chat_model": "Hermes-4-14B:latest",
     "timeout_seconds": 15
   },
   "vision": {
-    "yolo_model": "yolo11n.pt",
+    "yolo_model": "yolo11s-pose.pt",
     "tracker": "bytetrack.yaml",
     "target_fps": 4,
     "confidence_threshold": 0.35,
@@ -19,7 +19,7 @@
     "videos_dir": "data/videos"
   },
   "server": {
-    "host": "0.0.0.0",
+    "host": "127.0.0.1",
     "port": 8000
   }
 }

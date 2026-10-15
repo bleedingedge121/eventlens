@@ -3,216 +3,238 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="EventLens — Real-time security event detection, classification, and conversational querying">
   <title>EventLens | Security Operations Console</title>
-  <link rel="stylesheet" href="styles.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Header -->
   <header class="navbar">
     <div class="brand">
-      <span class="brand-badge">EVENTLENS</span>
-      <div>
-        <h1>Security Operations Console</h1>
-        <span class="subbrand-text">HackHive 2026 • Live Event Summarization & Classification</span>
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div class="brand-text">
+        <h1>EventLens</h1>
+        <span class="brand-sub">Security Operations Console</span>
       </div>
     </div>
-    
-    <div class="header-controls">
-      <button id="audio-toggle-btn" class="header-action-btn" title="Toggle audio alert chime">
-        <span id="audio-icon">🔔</span> Alerts: <strong id="audio-status">ON</strong>
+
+    <div class="header-actions">
+      <button id="audio-toggle" class="icon-btn" aria-label="Toggle alert audio" title="Alert audio: ON">
+        <span class="icon" aria-hidden="true">🔔</span>
+        <span class="label">Audio</span>
       </button>
-      <div class="system-status">
-        <span class="status-dot"></span>
-        <span id="connection-status">Online (RTX 5070 Ti)</span>
+
+      <div class="system-status" aria-live="polite">
+        <span class="status-indicator" aria-hidden="true"></span>
+        <span>System Online</span>
       </div>
-      <nav class="nav-links">
-        <a href="index.html" class="active">Live Dashboard</a>
+
+      <nav class="nav-primary" aria-label="Primary navigation">
+        <a href="index.html" class="active" aria-current="page">Live Dashboard</a>
         <a href="chat.html">Conversational Query</a>
       </nav>
     </div>
   </header>
 
-  <!-- Main Workspace -->
-  <main class="container">
-    <!-- Telemetry Cards -->
-    <section class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-header">
-          <span class="stat-label">Events Today</span>
-          <span class="stat-icon">📅</span>
+  <main class="workspace">
+    <section class="telemetry" aria-label="System telemetry">
+      <div class="telemetry-card">
+        <div class="telemetry-header">
+          <span class="telemetry-label">Events Today</span>
+          <span class="telemetry-icon" aria-hidden="true">📊</span>
         </div>
-        <span class="stat-val" id="stat-today">0</span>
-        <span class="stat-detail">Logged in SQLite Database</span>
+        <span class="telemetry-value" id="stat-today">—</span>
+        <span class="telemetry-detail">Recorded incidents</span>
       </div>
 
-      <div class="stat-card">
-        <div class="stat-header">
-          <span class="stat-label">Avg VLM Latency</span>
-          <span class="stat-icon">⚡</span>
+      <div class="telemetry-card">
+        <div class="telemetry-header">
+          <span class="telemetry-label">Avg VLM Latency</span>
+          <span class="telemetry-icon" aria-hidden="true">⚡</span>
         </div>
-        <span class="stat-val" id="stat-latency">-- ms</span>
-        <span class="stat-detail">Trigger to Audit Summary</span>
+        <span class="telemetry-value" id="stat-latency">— ms</span>
+        <span class="telemetry-detail">Trigger → Classification</span>
       </div>
 
-      <div class="stat-card">
-        <div class="stat-header">
-          <span class="stat-label">Total Verified Events</span>
-          <span class="stat-icon">🛡️</span>
+      <div class="telemetry-card">
+        <div class="telemetry-header">
+          <span class="telemetry-label">Verified Events</span>
+          <span class="telemetry-icon" aria-hidden="true">✓</span>
         </div>
-        <span class="stat-val" id="stat-total">0</span>
-        <span class="stat-detail">Filtered & Stored Incidents</span>
+        <span class="telemetry-value" id="stat-total">—</span>
+        <span class="telemetry-detail">Stored & classified</span>
       </div>
 
-      <div class="stat-card highlight">
-        <div class="stat-header">
-          <span class="stat-label">Local Edge Stack</span>
-          <span class="stat-icon">💻</span>
+      <div class="telemetry-card telemetry-card--accent">
+        <div class="telemetry-header">
+          <span class="telemetry-label">Processing</span>
+          <span class="telemetry-icon" aria-hidden="true">⚙</span>
         </div>
-        <span class="stat-val highlight-val">RTX 5070 Ti</span>
-        <span class="stat-detail">YOLOv11 • ByteTrack • Ollama</span>
+        <span class="telemetry-value" id="stat-processing">Idle</span>
+        <span class="telemetry-detail">Pipeline status</span>
       </div>
     </section>
 
-    <!-- Split Screen: Stream + Feed -->
     <div class="console-grid">
-      <!-- Live Video Viewport -->
-      <section class="card video-card">
-        <div class="card-header">
-          <div class="card-title">
-            <span class="live-indicator">●</span> Live Camera Feed
+      <section class="panel panel--video" aria-label="Live camera feed">
+        <header class="panel-header">
+          <div class="panel-title-group">
+            <span class="live-badge" aria-hidden="true">
+              <span class="live-dot"></span>
+              Live
+            </span>
+            <h2>Camera Feed</h2>
           </div>
-          <div class="camera-control-group">
-            <button id="toggle-zones-btn" class="pill-btn" title="Toggle Trigger Zones on Video">
-              Zones: <strong id="zones-status">VISIBLE</strong>
+          <div class="panel-controls">
+            <button id="zones-toggle" class="control-btn" aria-pressed="true" title="Toggle zone overlays">
+              <span class="icon" aria-hidden="true">⬜</span>
+              <span class="label">Zones</span>
+              <span class="control-state" id="zones-state">On</span>
             </button>
-            <select id="camera-select" class="cam-select">
-              <option value="cam1" selected>Camera 1 - Main Entrance Lobby</option>
-              <option value="cam2">Camera 2 - Office Floor Corridor</option>
+            <select id="camera-select" class="select" aria-label="Select camera">
+              <option value="cam1" selected>Camera 1 — Main Entrance</option>
+              <option value="cam2">Camera 2 — Office Corridor</option>
             </select>
           </div>
-        </div>
+        </header>
 
-        <div class="video-viewport" id="viewport-container">
-          <img id="live-stream" src="/stream/cam1" alt="Camera Stream" onerror="this.onerror=null; this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'640\' height=\'360\'><rect width=\'100%\' height=\'100%\' fill=\'%230b0f19\'/><text x=\'50%\' y=\'50%\' fill=\'%2364748b\' font-family=\'monospace\' font-size=\'15\' text-anchor=\'middle\'>STANDBY • START STREAM SOURCE BELOW</text></svg>';">
-          <canvas id="zone-overlay-canvas" class="zone-canvas"></canvas>
-          
-          <div class="cam-hud-overlay">
-            <span class="hud-pill red-rec"><span class="rec-dot"></span>REC</span>
-            <span class="hud-pill" id="hud-cam-id">CAM: cam1</span>
-            <span class="hud-pill" id="hud-fps">4 FPS</span>
-            <span class="hud-pill" id="hud-clock">00:00:00</span>
+        <div class="video-viewport" id="viewport">
+          <img id="stream" src="/stream/cam1" alt="Live camera feed" loading="eager">
+          <canvas id="zone-overlay" class="zone-canvas" aria-hidden="true"></canvas>
+
+          <div class="hud" aria-hidden="true">
+            <span class="hud-pill hud-pill--rec"><span class="rec-dot"></span>REC</span>
+            <span class="hud-pill" id="hud-camera">CAM: 1</span>
+            <span class="hud-pill" id="hud-fps">— FPS</span>
+            <span class="hud-pill" id="hud-time">00:00:00</span>
           </div>
 
-          <div class="viewport-actions">
-            <button id="snapshot-btn" class="icon-btn" title="Take Snapshot of Frame">📸</button>
-            <button id="fullscreen-btn" class="icon-btn" title="Toggle Fullscreen">⛶</button>
+          <div class="viewport-toolbar">
+            <button id="snapshot" class="icon-btn" aria-label="Capture snapshot" title="Snapshot">
+              <span aria-hidden="true">📷</span>
+            </button>
+            <button id="fullscreen" class="icon-btn" aria-label="Toggle fullscreen" title="Fullscreen">
+              <span aria-hidden="true">⛶</span>
+            </button>
           </div>
         </div>
 
-        <div class="scenario-chips-bar">
-          <span class="scenario-label">Quick Demo Feeds:</span>
-          <button class="scenario-btn" data-src="data/videos/test_tailgating.mp4">🚪 Tailgating</button>
-          <button class="scenario-btn" data-src="data/videos/test_person_down.mp4">⚠️ Person Down</button>
-          <button class="scenario-btn" data-src="data/videos/test_crowd.mp4">👥 Crowd Surge</button>
-          <button class="scenario-btn" data-src="data/videos/test_suspicious.mp4">🕵️ Suspicious Loitering</button>
-          <button class="scenario-btn" data-src="data/videos/test_normal.mp4">🚶 Routine Passage</button>
-          <button class="scenario-btn" data-src="0">📹 Live Webcam (0)</button>
+        <div class="scenario-bar" role="group" aria-label="Quick demo scenarios">
+          <span class="scenario-label">Quick Start:</span>
+          <button class="scenario-btn" data-src="data/videos/test_tailgating.mp4" title="Tailgating scenario">🚪 Tailgating</button>
+          <button class="scenario-btn" data-src="data/videos/test_person_down.mp4" title="Person down scenario">⚠ Person Down</button>
+          <button class="scenario-btn" data-src="data/videos/test_crowd.mp4" title="Crowd incident scenario">👥 Crowd</button>
+          <button class="scenario-btn" data-src="data/videos/test_suspicious.mp4" title="Suspicious activity scenario">🕵 Suspicious</button>
+          <button class="scenario-btn" data-src="data/videos/test_normal.mp4" title="Normal activity baseline">🚶 Normal</button>
+          <button class="scenario-btn" data-src="0" title="Live webcam">📹 Webcam</button>
         </div>
 
-        <div class="source-control-bar">
-          <div class="source-input-wrap">
-            <input type="text" id="source-input" class="source-input" placeholder="Video path (e.g. data/videos/test_tailgating.mp4), RTSP, or '0' for webcam">
-          </div>
-          <button id="start-source-btn" class="btn btn-primary">Start Ingestion</button>
+        <div class="source-bar">
+          <label for="source-input" class="visually-hidden">Video source path</label>
+          <input type="text" id="source-input" class="source-input" placeholder="Video file path, RTSP URL, or '0' for webcam" autocomplete="off">
+          <button id="start-source" class="btn btn--primary">Start Ingestion</button>
         </div>
       </section>
 
-      <!-- Event Feed Column -->
-      <section class="card feed-card">
-        <div class="card-header">
-          <div class="card-title">
-            <span>Classified Incidents</span>
-            <span class="counter-badge" id="feed-count">0</span>
+      <section class="panel panel--feed" aria-label="Classified incident feed">
+        <header class="panel-header">
+          <div class="panel-title-group">
+            <h2>Classified Incidents</h2>
+            <span class="counter" id="feed-count" aria-live="polite">0</span>
           </div>
-          <div class="search-wrap">
-            <input type="text" id="event-search" class="search-input" placeholder="Filter incidents...">
+          <div class="search-wrap" role="search">
+            <label for="event-search" class="visually-hidden">Filter incidents</label>
+            <input type="search" id="event-search" class="search-input" placeholder="Filter incidents…" aria-label="Filter incidents">
           </div>
+        </header>
+
+        <div class="filter-bar" role="group" aria-label="Filter by incident category">
+          <button class="filter-btn active" data-category="" aria-pressed="true">
+            All <span class="filter-count" id="count-all">0</span>
+          </button>
+          <button class="filter-btn" data-category="tailgating" aria-pressed="false">
+            Tailgating <span class="filter-count" id="count-tailgating">0</span>
+          </button>
+          <button class="filter-btn" data-category="person_down" aria-pressed="false">
+            Person Down <span class="filter-count" id="count-person_down">0</span>
+          </button>
+          <button class="filter-btn" data-category="fighting" aria-pressed="false">
+            Fighting <span class="filter-count" id="count-fighting">0</span>
+          </button>
+          <button class="filter-btn" data-category="crowd_incident" aria-pressed="false">
+            Crowd <span class="filter-count" id="count-crowd_incident">0</span>
+          </button>
+          <button class="filter-btn" data-category="suspicious_activity" aria-pressed="false">
+            Suspicious <span class="filter-count" id="count-suspicious_activity">0</span>
+          </button>
         </div>
 
-        <!-- Filter Category Pills with Badges -->
-        <div class="filter-bar">
-          <button class="filter-btn active" data-category="">All <span class="pill-count" id="count-all">0</span></button>
-          <button class="filter-btn" data-category="tailgating">Tailgating <span class="pill-count" id="count-tailgating">0</span></button>
-          <button class="filter-btn" data-category="person_down">Person Down <span class="pill-count" id="count-person_down">0</span></button>
-          <button class="filter-btn" data-category="fighting">Fighting <span class="pill-count" id="count-fighting">0</span></button>
-          <button class="filter-btn" data-category="crowd_incident">Crowd <span class="pill-count" id="count-crowd_incident">0</span></button>
-          <button class="filter-btn" data-category="suspicious_activity">Suspicious <span class="pill-count" id="count-suspicious_activity">0</span></button>
-        </div>
-
-        <!-- Events List Container -->
-        <div class="events-list" id="events-container">
+        <div class="event-feed" id="event-feed" role="list" aria-label="Incident list">
           <div class="empty-state">
-            <div class="spinner"></div>
-            <span>Syncing events with local database...</span>
+            <div class="spinner" aria-hidden="true"></div>
+            <span>Loading incidents…</span>
           </div>
         </div>
       </section>
     </div>
   </main>
 
-  <!-- Detailed Incident Inspector Modal -->
-  <div class="modal-overlay" id="keyframe-modal">
+  <dialog class="modal" id="event-modal" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal-content">
-      <div class="modal-header">
-        <div class="modal-header-title">
-          <span id="modal-category-badge" class="badge"></span>
-          <h3 id="modal-title">Event Keyframe Inspector</h3>
+      <header class="modal-header">
+        <div class="modal-header-content">
+          <span class="badge" id="modal-category-badge"></span>
+          <h3 id="modal-title">Incident Details</h3>
         </div>
-        <button id="modal-close-btn" class="btn btn-close">✕</button>
-      </div>
+        <button class="modal-close" id="modal-close" aria-label="Close modal">✕</button>
+      </header>
+
       <div class="modal-body">
-        <div class="modal-img-wrap">
-          <img id="modal-img" src="" alt="Keyframe Preview">
-        </div>
+        <figure class="modal-image-wrapper">
+          <img id="modal-image" src="" alt="Event keyframe">
+        </figure>
+
         <div class="modal-details">
           <div class="modal-row">
-            <span class="detail-label">Summary:</span>
-            <p id="modal-summary" class="detail-value text-highlight"></p>
+            <span class="detail-label">Summary</span>
+            <p id="modal-summary" class="detail-value"></p>
           </div>
-          <div class="modal-meta-grid">
-            <div class="meta-box">
-              <span class="meta-label">Camera ID</span>
-              <span id="modal-cam" class="meta-val"></span>
+
+          <div class="modal-meta">
+            <div class="meta-item">
+              <span class="meta-label">Camera</span>
+              <span id="modal-camera" class="meta-value mono"></span>
             </div>
-            <div class="meta-box">
+            <div class="meta-item">
               <span class="meta-label">Timestamp</span>
-              <span id="modal-time" class="meta-val font-mono"></span>
+              <span id="modal-timestamp" class="meta-value mono"></span>
             </div>
-            <div class="meta-box">
-              <span class="meta-label">VLM Confidence</span>
-              <span id="modal-conf" class="meta-val font-mono"></span>
+            <div class="meta-item">
+              <span class="meta-label">Confidence</span>
+              <span id="modal-confidence" class="meta-value mono"></span>
             </div>
-            <div class="meta-box">
-              <span class="meta-label">Processing Latency</span>
-              <span id="modal-lat" class="meta-val font-mono"></span>
+            <div class="meta-item">
+              <span class="meta-label">Latency</span>
+              <span id="modal-latency" class="meta-value mono"></span>
             </div>
           </div>
+
           <div class="modal-row">
-            <span class="detail-label">Track IDs:</span>
-            <div id="modal-tracks" class="tracks-container"></div>
+            <span class="detail-label">Track IDs</span>
+            <div id="modal-tracks" class="track-list"></div>
           </div>
+
           <div class="modal-actions">
-            <button id="copy-json-btn" class="btn">📋 Copy Event JSON</button>
-            <a id="query-event-link" href="#" class="btn btn-primary">🔍 Query AI about this Event</a>
+            <button id="copy-event" class="btn">Copy JSON</button>
+            <a id="query-link" href="chat.html" class="btn btn--primary">Ask About This Event</a>
           </div>
         </div>
       </div>
     </div>
-  </div>
+  </dialog>
 
-  <script src="dashboard.js"></script>
+  <script type="module" src="dashboard.js"></script>
 </body>
 </html>
