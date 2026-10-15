@@ -7,7 +7,7 @@
     "timeout_seconds": 15
   },
   "vision": {
-    "yolo_model": "yolo11s-pose.pt",
+    "yolo_model": "yolo11n.pt",
     "tracker": "bytetrack.yaml",
     "target_fps": 4,
     "confidence_threshold": 0.35,

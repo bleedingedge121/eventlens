@@ -12,8 +12,11 @@ Implements all frozen endpoints from AGENTS.md Section 8:
 """
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger("eventlens.server")
 
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,7 +27,13 @@ from pydantic import BaseModel
 from backend.server.chat import ChatEngine
 from backend.server.db import Database
 from backend.server.vlm import VLMClient
-from backend.vision.pipeline import get_latest_jpeg, start_camera
+from backend.vision.pipeline import (
+    get_latest_jpeg,
+    start_camera,
+    stop_camera,
+    get_camera_status,
+    list_active_cameras,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -77,25 +86,39 @@ def on_candidate_event(candidate: dict):
 
     latency_ms = int((time.time() - start_t) * 1000)
 
-    # Save keyframe image to disk
-    event_id_guess = int(time.time() * 1000) % 1000000
-    keyframe_bytes = candidate.get("keyframe_bytes")
-    keyframe_path = str(FRAMES_DIR / f"{event_id_guess}.jpg")
-    if keyframe_bytes:
-        Path(keyframe_path).write_bytes(keyframe_bytes)
-
     event_payload = {
         "timestamp": candidate.get("timestamp"),
         "camera_id": candidate.get("camera_id"),
         "category": vlm_result["category"],
         "confidence": vlm_result["confidence"],
         "summary": vlm_result["summary"],
-        "keyframe_path": keyframe_path,
+        "keyframe_path": "",
         "track_ids": candidate.get("track_ids", []),
         "latency_ms": latency_ms,
     }
 
-    db.insert_event(event_payload)
+    event_id = db.insert_event(event_payload)
+
+    # Save keyframe image named with exact event_id
+    keyframe_bytes = candidate.get("keyframe_bytes")
+    if keyframe_bytes and event_id:
+        keyframe_path = str(FRAMES_DIR / f"{event_id}.jpg")
+        Path(keyframe_path).write_bytes(keyframe_bytes)
+        db.update_keyframe_path(event_id, keyframe_path)
+
+
+@app.on_event("startup")
+def startup_event():
+    """Auto-initializes default camera streams if video sources exist."""
+    cam1_video = DATA_DIR / "videos" / "test_tailgating.mp4"
+    if cam1_video.exists():
+        start_camera("cam1", str(cam1_video), on_candidate=on_candidate_event)
+        logger.info(f"[Server] Auto-initialized cam1 with {cam1_video.name}")
+
+    cam2_video = DATA_DIR / "videos" / "test_person_down.mp4"
+    if cam2_video.exists():
+        start_camera("cam2", str(cam2_video), on_candidate=on_candidate_event)
+        logger.info(f"[Server] Auto-initialized cam2 with {cam2_video.name}")
 
 
 @app.get("/api/health")
@@ -144,18 +167,35 @@ def set_source(req: SourceRequest):
     return {"success": success, "camera_id": req.camera_id, "source": req.source}
 
 
+@app.delete("/api/source/{camera_id}")
+def delete_source(camera_id: str):
+    success = stop_camera(camera_id)
+    return {"success": success, "camera_id": camera_id}
+
+
+@app.get("/api/cameras")
+def get_cameras():
+    """Returns active cameras and their real-time telemetry."""
+    return {"cameras": list_active_cameras()}
+
+
+@app.get("/api/cameras/{camera_id}")
+def get_camera(camera_id: str):
+    """Returns telemetry for a specific camera."""
+    return get_camera_status(camera_id)
+
+
 @app.get("/stream/{camera_id}")
 async def video_stream(camera_id: str):
-    """Streams MJPEG frames for the given camera."""
+    """Streams live MJPEG frames for the given camera with zero-latency buffer."""
     async def frame_generator():
         while True:
             frame_bytes = get_latest_jpeg(camera_id)
-            if frame_bytes:
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-                )
-            await asyncio.sleep(0.08)  # ~12 FPS stream refresh
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
+            )
+            await asyncio.sleep(0.06)  # ~16.6 FPS smooth playback
 
     return StreamingResponse(
         frame_generator(),

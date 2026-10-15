@@ -61,6 +61,8 @@ class TrackHistory:
         self.positions: deque = deque(maxlen=60)
         self.zone_entry_times: Dict[str, float] = {}
         self.door_crossing_time: Optional[float] = None
+        self.down_start_time: Optional[float] = None
+        self.down_start_pos: Optional[Tuple[float, float]] = None
         self.last_seen: float = time.time()
 
 
@@ -134,13 +136,14 @@ class TriggerEngine:
 
             # Aspect ratio check: wider than tall
             if h > 0 and (w / h) >= aspect_thresh:
-                # Check if stationary
-                dt = latest_time - th.positions[0][0]
-                if dt >= still_sec:
-                    # check displacement
-                    start_cx, start_cy = th.positions[0][2], th.positions[0][3]
+                if th.down_start_time is None:
+                    th.down_start_time = latest_time
+                    th.down_start_pos = (cx, cy)
+                else:
+                    dt = latest_time - th.down_start_time
+                    start_cx, start_cy = th.down_start_pos
                     dist = ((cx - start_cx) ** 2 + (cy - start_cy) ** 2) ** 0.5
-                    if dist < 40.0:  # barely moved
+                    if dt >= still_sec and dist < 45.0:
                         if self._can_trigger(f"person_down_{tid}", current_time):
                             candidates.append({
                                 "camera_id": self.camera_id,
@@ -148,6 +151,9 @@ class TriggerEngine:
                                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                                 "track_ids": [tid],
                             })
+            else:
+                th.down_start_time = None
+                th.down_start_pos = None
 
             # Check Door Crossing for Tailgating
             if door_zone and point_in_polygon(cx, cy, door_zone):

@@ -103,6 +103,13 @@ class Database:
             conn.commit()
             return cursor.lastrowid
 
+    def update_keyframe_path(self, event_id: int, keyframe_path: str):
+        """Updates the keyframe path for a recorded event."""
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE events SET keyframe_path = ? WHERE id = ?", (keyframe_path, event_id))
+            conn.commit()
+
     def get_event(self, event_id: int) -> Optional[Dict[str, Any]]:
         """Retrieves a single event by ID formatted according to the Section 8 contract."""
         with self._connection() as conn:
