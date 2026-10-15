@@ -4,24 +4,28 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 python3.11-venv python3-pip \
-    libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 libgomp1 \
+    python3.11 python3.11-venv python3-pip curl \
+    libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 libgomp1 ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install PyTorch with CUDA first
+# Upgrade pip and install PyTorch with CUDA 12.8 first
+RUN pip3 install --no-cache-dir --upgrade pip
 RUN pip3 install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu128
 
 # Copy requirements and install
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Copy project
-COPY . .
+# Copy project files
+COPY backend/ ./backend/
+COPY config/ ./config/
+COPY frontend/ ./frontend/
+COPY scripts/ ./scripts/
 
-# Build frontend
-RUN npm --prefix frontend install && npm --prefix frontend run build
+# Create data directories
+RUN mkdir -p data/frames data/videos
 
 EXPOSE 8000
 

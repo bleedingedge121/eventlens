@@ -1,8 +1,8 @@
-// EventLens — Dashboard Client Logic
-// Professional, minimal, zero-framework vanilla JS
+// EventLens — Security Operations Dashboard Client
+// High-reliability, zero-framework vanilla ES6+ module
 
 (() => {
-  // ============ STATE ============
+  // ============ OPERATIONAL STATE ============
   let currentCamera = 'cam1';
   let currentCategory = '';
   let searchQuery = '';
@@ -15,7 +15,7 @@
   let fpsCounter = 0;
   let lastFpsTime = performance.now();
 
-  // Camera zone definitions (match backend config/cameras.json)
+  // Camera zone polygons (matches backend config/cameras.json)
   const CAMERA_ZONES = {
     cam1: {
       doorZone: [[180, 240], [420, 240], [420, 480], [180, 480]],
@@ -42,10 +42,9 @@
 
   const els = {
     audioToggle: $('#audio-toggle'),
-    audioIcon: $('#audio-toggle .icon'),
+    audioIcon: $('#audio-icon'),
     audioLabel: $('#audio-toggle .label'),
     systemStatus: $('.system-status'),
-    navLinks: $$('.nav-primary a'),
 
     statToday: $('#stat-today'),
     statLatency: $('#stat-latency'),
@@ -56,6 +55,7 @@
     zonesToggle: $('#zones-toggle'),
     zonesState: $('#zones-state'),
     streamImg: $('#stream'),
+    streamFallback: $('#stream-fallback'),
     zoneCanvas: $('#zone-overlay'),
     viewport: $('#viewport'),
     hudCamera: $('#hud-camera'),
@@ -99,46 +99,74 @@
   // ============ UTILITIES ============
   const formatTime = (iso) => {
     if (!iso) return '\u2014';
-    try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
-    catch { return iso; }
+    try {
+      return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch {
+      return iso;
+    }
   };
 
   const formatTimestamp = (iso) => {
     if (!iso) return '\u2014';
-    try { return new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'medium' }); }
-    catch { return iso; }
+    try {
+      return new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'medium' });
+    } catch {
+      return iso;
+    }
+  };
+
+  const formatRelativeTime = (iso) => {
+    if (!iso) return '';
+    try {
+      const diffSec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+      if (diffSec < 60) return 'Just now';
+      if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+      if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+      return `${Math.floor(diffSec / 86400)}d ago`;
+    } catch {
+      return '';
+    }
   };
 
   const escapeHtml = (str) => {
     if (!str) return '';
     return String(str).replace(/[&<>'"]/g, c => {
-      const map = { '&': '&', '<': '<', '>': '>', "'": ''', '"': '"' };
+      const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' };
       return map[c];
     });
   };
 
-  const playChime = () => {
+  // Synthesized tactical alert chime via Web Audio API
+  const playAlertChime = () => {
     if (!audioEnabled) return;
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
       const ctx = new AC();
       const play = (freq, start, dur) => {
-        const o = ctx.createOscillator(), g = ctx.createGain();
-        o.type = 'sine'; o.frequency.value = freq;
-        g.gain.setValueAtTime(0.06, ctx.currentTime + start);
-        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
-        o.connect(g); g.connect(ctx.destination);
-        o.start(ctx.currentTime + start); o.stop(ctx.currentTime + start + dur);
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.value = freq;
+        g.gain.setValueAtTime(0.04, ctx.currentTime + start);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + dur);
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.start(ctx.currentTime + start);
+        o.stop(ctx.currentTime + start + dur);
       };
-      play(880, 0, 0.12); play(1320, 0.1, 0.2);
+      play(780, 0, 0.09);
+      play(1170, 0.08, 0.18);
     } catch {}
   };
 
   const copyToClipboard = (text, btn, originalLabel) => {
     navigator.clipboard.writeText(text).then(() => {
-      btn.textContent = 'Copied';
-      setTimeout(() => { btn.textContent = originalLabel; }, 1500);
+      btn.textContent = 'Copied ✓';
+      setTimeout(() => { btn.textContent = originalLabel; }, 1800);
+    }).catch(() => {
+      btn.textContent = 'Copy Failed';
+      setTimeout(() => { btn.textContent = originalLabel; }, 1800);
     });
   };
 
@@ -146,68 +174,82 @@
   function drawZones() {
     const canvas = els.zoneCanvas;
     const container = els.viewport;
-    if (!canvas || !container || !zonesVisible) {
-      if (canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); }
-      return;
-    }
+    if (!canvas || !container) return;
 
+    const dpr = window.devicePixelRatio || 1;
     const rect = container.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
+
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width = `${rect.width}px`;
+    canvas.style.height = `${rect.height}px`;
 
     const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    if (!zonesVisible) return;
 
     const config = CAMERA_ZONES[currentCamera];
     if (!config) return;
 
-    const scaleX = canvas.width / 640;
-    const scaleY = canvas.height / 480;
+    const scaleX = rect.width / 640;
+    const scaleY = rect.height / 480;
 
-    // Door zone — cyan
+    // Door zone — Cyan dashed bounds
     if (config.doorZone) {
       ctx.beginPath();
       config.doorZone.forEach((pt, i) => {
-        const x = pt[0] * scaleX, y = pt[1] * scaleY;
+        const x = pt[0] * scaleX;
+        const y = pt[1] * scaleY;
         i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       });
       ctx.closePath();
-      ctx.fillStyle = 'rgba(0, 212, 255, 0.1)';
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
       ctx.fill();
-      ctx.strokeStyle = 'rgba(0, 212, 255, 0.8)';
-      ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.85)';
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([5, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
       const [fx, fy] = config.doorZone[0];
-      ctx.fillStyle = 'rgba(0, 212, 255, 0.95)';
-      ctx.font = '10px var(--font-mono)';
-      ctx.fillText('DOOR ZONE', fx * scaleX + 6, fy * scaleY + 14);
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.95)';
+      ctx.font = '600 10px "IBM Plex Mono", monospace';
+      ctx.fillText('DOOR ZONE // CH-01', fx * scaleX + 6, fy * scaleY + 14);
     }
 
-    // Restricted zones — rose
+    // Restricted zone — Rose dashed bounds
     if (config.restrictedZones) {
       config.restrictedZones.forEach(z => {
         ctx.beginPath();
         z.poly.forEach((pt, i) => {
-          const x = pt[0] * scaleX, y = pt[1] * scaleY;
+          const x = pt[0] * scaleX;
+          const y = pt[1] * scaleY;
           i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
         });
         ctx.closePath();
-        ctx.fillStyle = 'rgba(255, 71, 126, 0.1)';
+        ctx.fillStyle = 'rgba(244, 63, 94, 0.08)';
         ctx.fill();
-        ctx.strokeStyle = 'rgba(255, 71, 126, 0.85)';
-        ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
+        ctx.strokeStyle = 'rgba(244, 63, 94, 0.85)';
+        ctx.lineWidth = 1.8;
+        ctx.setLineDash([5, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
         const [fx, fy] = z.poly[0];
-        ctx.fillStyle = 'rgba(255, 71, 126, 0.95)';
-        ctx.font = '10px var(--font-mono)';
-        ctx.fillText(z.name.toUpperCase(), fx * scaleX + 6, fy * scaleY + 14);
+        ctx.fillStyle = 'rgba(244, 63, 94, 0.95)';
+        ctx.font = '600 10px "IBM Plex Mono", monospace';
+        ctx.fillText(z.name.toUpperCase() + ' // RESTRICTED', fx * scaleX + 6, fy * scaleY + 14);
       });
     }
   }
 
-  // ============ HUD CLOCK ============
+  // ============ HUD CLOCK & FPS ============
   function updateClock() {
     const now = new Date();
     els.hudTime.textContent = now.toTimeString().split(' ')[0];
-    els.hudCamera.textContent = `CAM: ${currentCamera.slice(-1)}`;
+    els.hudCamera.textContent = `CAM: ${currentCamera.toUpperCase()}`;
   }
 
   function tickFps() {
@@ -220,7 +262,7 @@
     }
   }
 
-  // ============ EVENT RENDERING ============
+  // ============ EVENT FEED RENDERING ============
   function renderEvents() {
     let filtered = currentEvents;
 
@@ -230,9 +272,9 @@
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(e =>
-        e.summary.toLowerCase().includes(q) ||
-        e.camera_id.toLowerCase().includes(q) ||
-        e.category.toLowerCase().includes(q) ||
+        (e.summary && e.summary.toLowerCase().includes(q)) ||
+        (e.camera_id && e.camera_id.toLowerCase().includes(q)) ||
+        (e.category && e.category.toLowerCase().includes(q)) ||
         String(e.id).includes(q)
       );
     }
@@ -243,27 +285,29 @@
       els.eventFeed.innerHTML = `
         <div class="empty-state">
           <div class="spinner"></div>
-          <span>${currentEvents.length ? 'No incidents match current filters.' : 'No incidents recorded yet.'}</span>
+          <span>${currentEvents.length ? 'No incidents match current filter criteria.' : 'No incidents recorded yet. Start camera ingestion to begin.'}</span>
         </div>`;
       return;
     }
 
     els.eventFeed.innerHTML = filtered.map(ev => {
       const meta = CATEGORY_META[ev.category] || { label: ev.category, severity: 'notice', badgeClass: '' };
-      const tracksHtml = ev.track_ids?.length
+      const tracksHtml = ev.track_ids && ev.track_ids.length
         ? ev.track_ids.map(id => `<span class="track-chip">#${id}</span>`).join(' ')
         : '';
 
+      const keyframeSrc = ev.keyframe_url || `/frames/${ev.id}.jpg`;
+
       return `
-        <article class="event-item event-item--${meta.severity}" data-id="${ev.id}" tabindex="0" role="listitem">
+        <article class="event-item event-item--${ev.category}" data-id="${ev.id}" tabindex="0" role="listitem" aria-label="Incident ${ev.id}: ${meta.label}">
           <div class="event-thumb-wrapper">
-            <img class="event-thumb" src="${ev.keyframe_url}" alt="Keyframe for incident ${ev.id}"
-              onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'112\\' height=\\'68\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%23060b14\\'/></svg>'">
+            <img class="event-thumb" src="${keyframeSrc}" alt="Keyframe for incident ${ev.id}" loading="lazy"
+              onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'104\\' height=\\'64\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%23080c14\\'/><text x=\\'50%\\' y=\\'50%\\' fill=\\'%23475569\\' font-size=\\'9\\' font-family=\\'monospace\\' text-anchor=\\'middle\\' dominant-baseline=\\'middle\\'>NO FRAME</text></svg>'">
           </div>
           <div class="event-body">
             <div class="event-meta">
               <span class="badge ${meta.badgeClass}">${meta.label}</span>
-              <span class="event-time">${formatTime(ev.timestamp)}</span>
+              <span class="event-time" title="${formatTimestamp(ev.timestamp)}">${formatTime(ev.timestamp)}${formatRelativeTime(ev.timestamp) ? ` · ${formatRelativeTime(ev.timestamp)}` : ''}</span>
               <span class="event-camera">${ev.camera_id}</span>
             </div>
             <div class="event-summary">${escapeHtml(ev.summary)}</div>
@@ -280,33 +324,39 @@
       const id = Number(item.dataset.id);
       const handler = () => openModal(id);
       item.addEventListener('click', handler);
-      item.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); } });
+      item.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handler();
+        }
+      });
     });
   }
 
-  // ============ MODAL ============
+  // ============ MODAL INSPECTION ============
   function openModal(eventId) {
     const ev = currentEvents.find(e => e.id === eventId);
     if (!ev) return;
 
     const meta = CATEGORY_META[ev.category] || { label: ev.category, badgeClass: '' };
+    const keyframeSrc = ev.keyframe_url || `/frames/${ev.id}.jpg`;
 
     els.modalCategoryBadge.className = `badge ${meta.badgeClass}`;
     els.modalCategoryBadge.textContent = meta.label;
-    els.modalTitle.textContent = `Incident #${ev.id}`;
-    els.modalImage.src = ev.keyframe_url;
-    els.modalImage.alt = `Keyframe for ${meta.label} incident #${ev.id}`;
+    els.modalTitle.textContent = `Incident Record #${ev.id}`;
+    els.modalImage.src = keyframeSrc;
+    els.modalImage.alt = `Keyframe for ${meta.label} #${ev.id}`;
     els.modalSummary.textContent = ev.summary;
     els.modalCamera.textContent = ev.camera_id;
     els.modalTimestamp.textContent = formatTimestamp(ev.timestamp);
     els.modalConfidence.textContent = `${(ev.confidence * 100).toFixed(1)}%`;
     els.modalLatency.textContent = `${ev.latency_ms || 0} ms`;
 
-    els.modalTracks.innerHTML = ev.track_ids?.length
-      ? ev.track_ids.map(id => `<span class="track-chip">Track #${id}</span>`).join(' ')
-      : '<span style="color:var(--text-dim)">None</span>';
+    els.modalTracks.innerHTML = ev.track_ids && ev.track_ids.length
+      ? ev.track_ids.map(id => `<span class="track-chip">Target #${id}</span>`).join(' ')
+      : '<span style="color:var(--text-dim)">None detected</span>';
 
-    els.queryLink.href = `chat.html?q=${encodeURIComponent(`Tell me about incident #${ev.id} on ${ev.camera_id}`)}`;
+    els.queryLink.href = `chat.html?q=${encodeURIComponent(`Provide full analysis of incident #${ev.id} on ${ev.camera_id}`)}`;
 
     els.copyEventBtn.onclick = () => copyToClipboard(JSON.stringify(ev, null, 2), els.copyEventBtn, 'Copy JSON');
 
@@ -319,7 +369,7 @@
     document.body.style.overflow = '';
   }
 
-  // ============ API CALLS ============
+  // ============ API COMMUNICATIONS ============
   async function fetchStats() {
     try {
       const res = await fetch('/api/stats', { cache: 'no-store' });
@@ -352,7 +402,9 @@
 
       if (events.length) {
         const maxId = Math.max(...events.map(e => e.id));
-        if (lastEventId !== 0 && maxId > lastEventId) playChime();
+        if (lastEventId !== 0 && maxId > lastEventId) {
+          playAlertChime();
+        }
         lastEventId = maxId;
       }
 
@@ -366,7 +418,9 @@
 
   async function startSource(source) {
     els.startSourceBtn.disabled = true;
-    els.startSourceBtn.textContent = 'Connecting\u2026';
+    els.startSourceBtn.innerHTML = `
+      <div class="spinner" style="width:12px;height:12px;border-width:2px;"></div>
+      Connecting…`;
 
     try {
       const res = await fetch('/api/source', {
@@ -377,22 +431,31 @@
       const data = await res.json();
 
       if (data.success) {
+        els.viewport.classList.remove('offline');
         els.streamImg.src = `/stream/${currentCamera}?t=${Date.now()}`;
-        els.startSourceBtn.textContent = 'Active';
-        setTimeout(() => { els.startSourceBtn.textContent = 'Start Ingestion'; els.startSourceBtn.disabled = false; }, 2000);
+        els.startSourceBtn.textContent = 'Active ✓';
+        setTimeout(() => {
+          els.startSourceBtn.innerHTML = `
+            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Start Ingestion`;
+          els.startSourceBtn.disabled = false;
+        }, 2200);
       } else {
-        throw new Error(data.detail || 'Failed to start source');
+        throw new Error(data.detail || 'Ingestion worker failed to start');
       }
     } catch (err) {
-      console.error('[EventLens] Source start failed:', err);
-      alert(`Failed to start camera: ${err.message}`);
-      els.startSourceBtn.textContent = 'Start Ingestion';
+      console.error('[EventLens] Ingestion error:', err);
+      alert(`Source ingestion failed: ${err.message}`);
+      els.startSourceBtn.innerHTML = `
+        <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Start Ingestion`;
       els.startSourceBtn.disabled = false;
     }
   }
 
-  // ============ EVENT HANDLERS ============
+  // ============ EVENT LISTENERS & SHORTCUTS ============
   function initHandlers() {
+    // Camera stream selector
     els.cameraSelect.addEventListener('change', e => {
       currentCamera = e.target.value;
       els.streamImg.src = `/stream/${currentCamera}?t=${Date.now()}`;
@@ -400,6 +463,7 @@
       fetchEvents();
     });
 
+    // Zones toggle
     els.zonesToggle.addEventListener('click', () => {
       zonesVisible = !zonesVisible;
       els.zonesToggle.setAttribute('aria-pressed', zonesVisible);
@@ -407,36 +471,55 @@
       drawZones();
     });
 
+    // Audio toggle
     els.audioToggle.addEventListener('click', () => {
       audioEnabled = !audioEnabled;
       els.audioToggle.setAttribute('aria-label', `Toggle alert audio (${audioEnabled ? 'ON' : 'OFF'})`);
-      els.audioToggle.title = `Alert audio: ${audioEnabled ? 'ON' : 'OFF'}`;
-      els.audioIcon.textContent = audioEnabled ? '🔔' : '🔕';
-      els.audioLabel.textContent = audioEnabled ? 'Audio' : 'Muted';
-      els.audioToggle.style.borderColor = audioEnabled ? 'var(--border-default)' : 'var(--accent-rose)';
+      els.audioToggle.title = `Alert audio: ${audioEnabled ? 'ON' : 'OFF'} (Key: M)`;
+      els.audioLabel.textContent = audioEnabled ? 'Audio On' : 'Muted';
+
+      if (audioEnabled) {
+        els.audioIcon.innerHTML = `
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>`;
+        els.audioToggle.classList.remove('active');
+      } else {
+        els.audioIcon.innerHTML = `
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          <path d="M18.63 13A17.89 17.89 0 0 1 18 8"></path>
+          <path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"></path>
+          <path d="M1 1l22 22"></path>`;
+        els.audioToggle.classList.add('active');
+      }
     });
 
+    // Quick scenario buttons
     els.scenarioBtns.forEach(btn => {
       btn.addEventListener('click', () => {
-        els.sourceInput.value = btn.dataset.src;
-        startSource(btn.dataset.src);
+        const src = btn.dataset.src;
+        els.sourceInput.value = src;
+        startSource(src);
       });
     });
 
+    // Source start
     els.startSourceBtn.addEventListener('click', () => {
       const src = els.sourceInput.value.trim() || '0';
       startSource(src);
     });
-    els.sourceInput.addEventListener('keydown', e => { if (e.key === 'Enter') startSource(els.sourceInput.value.trim() || '0'); });
-
-    els.eventSearch.addEventListener('input', e => {
-      searchQuery = e.target.value.trim().toLowerCase();
-      renderEvents();
+    els.sourceInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        startSource(els.sourceInput.value.trim() || '0');
+      }
     });
 
+    // Filter tabs
     els.filterBtns.forEach(btn => {
       btn.addEventListener('click', () => {
-        els.filterBtns.forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
+        els.filterBtns.forEach(b => {
+          b.classList.remove('active');
+          b.setAttribute('aria-pressed', 'false');
+        });
         btn.classList.add('active');
         btn.setAttribute('aria-pressed', 'true');
         currentCategory = btn.dataset.category;
@@ -444,6 +527,13 @@
       });
     });
 
+    // Search query
+    els.eventSearch.addEventListener('input', e => {
+      searchQuery = e.target.value.trim().toLowerCase();
+      renderEvents();
+    });
+
+    // Snapshot download
     els.snapshotBtn.addEventListener('click', () => {
       const link = document.createElement('a');
       link.download = `eventlens_${currentCamera}_${Date.now()}.jpg`;
@@ -451,6 +541,7 @@
       link.click();
     });
 
+    // Fullscreen toggle
     els.fullscreenBtn.addEventListener('click', () => {
       if (!document.fullscreenElement) {
         els.viewport.requestFullscreen().catch(console.warn);
@@ -460,9 +551,50 @@
     });
     document.addEventListener('fullscreenchange', () => setTimeout(drawZones, 200));
 
+    // Modal close
     els.modalClose.addEventListener('click', closeModal);
-    els.modal.addEventListener('click', e => { if (e.target === els.modal) closeModal(); });
-    document.addEventListener('keydown', e => { if (e.key === 'Escape' && els.modal.open) closeModal(); });
+    els.modal.addEventListener('click', e => {
+      if (e.target === els.modal) closeModal();
+    });
+
+    // Stream error recovery
+    els.streamImg.addEventListener('error', () => {
+      els.viewport.classList.add('offline');
+    });
+    els.streamImg.addEventListener('load', () => {
+      els.viewport.classList.remove('offline');
+    });
+
+    // Global Tactical Keyboard Shortcuts
+    document.addEventListener('keydown', e => {
+      // Ignore if user is currently typing in an input or textarea
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
+        if (e.key === 'Escape') {
+          e.target.blur();
+          if (els.modal.open) closeModal();
+        }
+        return;
+      }
+
+      if (e.key === 'Escape' && els.modal.open) {
+        closeModal();
+      } else if (e.key === '/' || e.key === '?') {
+        e.preventDefault();
+        els.eventSearch.focus();
+      } else if (e.key === 'z' || e.key === 'Z') {
+        els.zonesToggle.click();
+      } else if (e.key === 'm' || e.key === 'M') {
+        els.audioToggle.click();
+      } else if (e.key === '1') {
+        els.cameraSelect.value = 'cam1';
+        els.cameraSelect.dispatchEvent(new Event('change'));
+      } else if (e.key === '2') {
+        els.cameraSelect.value = 'cam2';
+        els.cameraSelect.dispatchEvent(new Event('change'));
+      } else if (e.key === 'f' || e.key === 'F') {
+        els.fullscreenBtn.click();
+      }
+    });
 
     window.addEventListener('resize', drawZones);
   }
@@ -471,7 +603,10 @@
   function startPolling() {
     fetchStats();
     fetchEvents();
-    pollTimer = setInterval(() => { fetchStats(); fetchEvents(); }, 2000);
+    pollTimer = setInterval(() => {
+      fetchStats();
+      fetchEvents();
+    }, 2000);
     clockTimer = setInterval(updateClock, 1000);
   }
 
@@ -480,13 +615,13 @@
     clearInterval(clockTimer);
   }
 
-  // ============ INIT ============
+  // ============ INITIALIZE ============
   document.addEventListener('DOMContentLoaded', () => {
     initHandlers();
     updateClock();
     drawZones();
     startPolling();
-    console.log('[EventLens] Dashboard initialized');
+    console.log('[EventLens] Dashboard initialized with SOC keyboard navigation');
   });
 
   window.addEventListener('beforeunload', stopPolling);

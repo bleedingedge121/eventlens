@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="EventLens — Conversational Natural Language Query Engine for Surveillance Events">
+  <title>EventLens | Conversational AI Query</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=IBM+Plex+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Top Navigation Bar -->
+  <header class="navbar" role="banner">
+    <a href="index.html" class="brand" aria-label="EventLens Home">
+      <div class="brand-icon" aria-hidden="true">
+        <svg class="icon-svg icon-svg--lg" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 3v18"></path>
+          <path d="M3 12h18"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1>EventLens</h1>
+        <span class="brand-sub">Conversational Query Engine</span>
+      </div>
+    </a>
+
+    <div class="header-actions">
+      <!-- Status Pill -->
+      <div class="system-status" aria-live="polite">
+        <span class="status-indicator" aria-hidden="true"></span>
+        <span>Text-to-SafeSQL Active</span>
+      </div>
+
+      <!-- Navigation -->
+      <nav class="nav-primary" aria-label="Primary navigation">
+        <a href="index.html" class="nav-link">
+          <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+          Dashboard
+        </a>
+        <a href="chat.html" class="nav-link active" aria-current="page">
+          <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+          Query AI
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Workspace with Sidebar & Main Chat Container -->
+  <main class="chat-workspace" role="main">
+    <!-- Left Sidebar: Schema & Quick Presets -->
+    <aside class="chat-sidebar" aria-label="Query Guidelines and Schema">
+      <!-- Quick Prompts Card -->
+      <div class="sidebar-card">
+        <span class="sidebar-title">
+          <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          Benchmark Queries
+        </span>
+        <div class="preset-list" id="preset-list">
+          <button class="preset-query-btn" data-query="Show all tailgating events from camera 1 today">
+            "Show all tailgating events from camera 1 today"
+          </button>
+          <button class="preset-query-btn" data-query="Did anyone fall down in camera 2?">
+            "Did anyone fall down in camera 2?"
+          </button>
+          <button class="preset-query-btn" data-query="Show all fighting incidents">
+            "Show all fighting incidents"
+          </button>
+          <button class="preset-query-btn" data-query="List suspicious loitering activity">
+            "List suspicious loitering activity"
+          </button>
+          <button class="preset-query-btn" data-query="Show crowd incidents with confidence over 80%">
+            "Show crowd incidents with confidence over 80%"
+          </button>
+        </div>
+      </div>
+
+      <!-- SQLite Schema Inspector Card -->
+      <div class="sidebar-card">
+        <span class="sidebar-title">
+          <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+          Table: events (Read-Only)
+        </span>
+        <table class="schema-table" aria-label="Database schema">
+          <thead>
+            <tr><th>Column</th><th>Type</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>id</td><td>INTEGER PK</td></tr>
+            <tr><td>timestamp</td><td>TEXT (ISO)</td></tr>
+            <tr><td>camera_id</td><td>TEXT</td></tr>
+            <tr><td>category</td><td>TEXT</td></tr>
+            <tr><td>confidence</td><td>REAL (0..1)</td></tr>
+            <tr><td>summary</td><td>TEXT</td></tr>
+            <tr><td>track_ids</td><td>TEXT (JSON)</td></tr>
+            <tr><td>latency_ms</td><td>INTEGER</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Recent Query History Card -->
+      <div class="sidebar-card" id="history-card" style="display:none;">
+        <span class="sidebar-title">
+          <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          Session History
+        </span>
+        <div class="preset-list" id="history-list"></div>
+      </div>
+    </aside>
+
+    <!-- Main Chat Window -->
+    <section class="chat-main" aria-label="Conversational AI Chat Thread">
+      <header class="chat-header">
+        <div class="chat-header-title">
+          <svg class="icon-svg" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          <h2>Intelligence Dialogue & Audit Stream</h2>
+        </div>
+        <div class="panel-controls">
+          <button id="clear-chat" class="icon-btn" title="Reset chat conversation">
+            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            Clear History
+          </button>
+        </div>
+      </header>
+
+      <!-- Scrollable Message Feed -->
+      <div class="chat-messages" id="chat-messages" role="log" aria-live="polite">
+        <!-- Default Welcome Assistant Message -->
+        <div class="msg-row msg-row--assistant">
+          <div class="msg-avatar msg-avatar--assistant" aria-hidden="true">AI</div>
+          <div class="msg-bubble">
+            <p>Welcome to the <strong>EventLens Intelligence Query Engine</strong>.</p>
+            <p>You can query all verified surveillance incidents using natural language. Questions are dynamically translated by a local LLM into single, strictly validated, read-only SQL statements and executed directly against the local SQLite database.</p>
+            <div class="sql-inspector">
+              <div class="sql-inspector-header">
+                <span class="sql-tag">
+                  <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  Validated Read-Only Protocol
+                </span>
+                <span>Audit Transparency</span>
+              </div>
+              <div class="sql-code">SELECT * FROM events WHERE timestamp >= '2026-10-15T00:00:00' ORDER BY id DESC LIMIT 50;</div>
+            </div>
+            <p style="color:var(--text-secondary);font-size:0.8rem;">Select a benchmark query from the sidebar or type your query below.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input Bar Container -->
+      <div class="chat-input-container">
+        <form class="chat-input-form" id="chat-form">
+          <div class="chat-textarea-wrapper">
+            <textarea
+              id="chat-input"
+              class="chat-textarea"
+              placeholder="Ask about detected security incidents, cameras, or times… (Key: /)"
+              rows="1"
+              required
+              autocomplete="off"
+              spellcheck="false"
+            ></textarea>
+          </div>
+          <button type="submit" id="chat-submit" class="btn btn--primary" aria-label="Send query">
+            <svg class="icon-svg" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+            <span>Query</span>
+          </button>
+        </form>
+        <div class="chat-input-hints">
+          <span><span class="kbd-hint">Enter</span> to send &nbsp;|&nbsp; <span class="kbd-hint">Shift + Enter</span> for newline</span>
+          <span><span class="kbd-hint">/</span> focuses input</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Incident Details Modal for Event Cards inside Chat -->
+  <dialog class="modal" id="event-modal" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-content">
+      <header class="modal-header">
+        <div class="modal-header-content">
+          <span class="badge" id="modal-category-badge"></span>
+          <h3 id="modal-title">Incident Details</h3>
+        </div>
+        <button class="modal-close" id="modal-close" aria-label="Close modal (Esc)">
+          <svg class="icon-svg" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </header>
+
+      <div class="modal-body">
+        <figure class="modal-image-wrapper">
+          <img id="modal-image" src="" alt="Event keyframe visualization">
+        </figure>
+
+        <div class="modal-details">
+          <div class="modal-row">
+            <span class="detail-label">VLM Synthesis Summary</span>
+            <p id="modal-summary" class="detail-value"></p>
+          </div>
+
+          <div class="modal-meta">
+            <div class="meta-item">
+              <span class="meta-label">Camera ID</span>
+              <span id="modal-camera" class="meta-value mono"></span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Timestamp</span>
+              <span id="modal-timestamp" class="meta-value mono"></span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Confidence</span>
+              <span id="modal-confidence" class="meta-value mono"></span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">VLM Latency</span>
+              <span id="modal-latency" class="meta-value mono"></span>
+            </div>
+          </div>
+
+          <div class="modal-row">
+            <span class="detail-label">ByteTrack Target IDs</span>
+            <div id="modal-tracks" class="track-list"></div>
+          </div>
+
+          <div class="modal-actions">
+            <button id="copy-event" class="btn">
+              <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              Copy JSON
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <script type="module" src="chat.js"></script>
+</body>
+</html>
