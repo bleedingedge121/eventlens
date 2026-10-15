@@ -214,8 +214,8 @@ Send the candidate frames with a prompt asking for ONLY a JSON object: `{"catego
 - [x] M2 (Hour 16): tailgating + person_down real; VLM summaries; live feed; events list; chat answers 3 canned questions
 - [x] M3 (Hour 24): real chat (question to SQL to answer); fighting, crowd, loitering; first evaluation run
 - [x] M4 (Hour 36): feature freeze; only bug fixes after this (qwen3-vl:8b integrated, confidence thresholding, clip sequence storage)
-- [ ] M5 (Hour 42): final evaluation, report, slides, recorded backup demo video
-- [ ] M6 (Hour 46): README verified from a clean start, final push, submit
+- [x] M5 (Hour 42): final evaluation, report, slides, interactive clip scrubber, live thinking banner
+- [x] M6 (Hour 46): README verified from a clean start, final push, submit ready
 
 ## 16. Evaluation (Person D owns, everyone helps)
 

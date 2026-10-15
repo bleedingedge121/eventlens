@@ -21,8 +21,10 @@ Modern CCTV surveillance systems record petabytes of passive footage, yet critic
 2. **Deterministic Geometric Rule Triggers**: Real-time bounding box geometry, aspect-ratio inversion, velocity vectors, and zone polygons trigger anomaly candidates *without* continuous vision-language calls.
 3. **Selective Local VLM Verification**: Only triggered anomaly candidate frames are dispatched to a local Ollama Vision-Language Model (`qwen3-vl:8b` / `qwen2.5-vl` / `gemma3`) for multi-sentence summarization, weapon recognition, and category confirmation.
 4. **Confidence Thresholding & Multi-Frame Clips**: Configurable confidence gates filter noise, while high-confidence incidents store complete multi-frame temporal sequences (`/clips/{id}`) for interactive visual scrub in the console.
-5. **Conversational SafeSQL Auditing**: Security officers query recorded events in plain English ("*Show all tailgating events from camera 1 today*"). A local LLM compiles the query into single, read-only `SELECT` statements strictly audited against SQLite.
-6. **Industrial SOC Console**: Zero-framework, dark command-center interface with HUD overlays, live zones, confidence selectors, keyboard shortcuts, and full audit transparency.
+5. **Interactive Clip Sequence Inspector**: Incident modals feature a built-in frame scrubber and clip player (`▶ Play Clip`, `◀ Prev`, `Next ▶`) with explicit frame captions labeling temporal context and keyframes sent to the VLM.
+6. **Live AI & VLM Thinking HUD**: Real-time video overlay and viewport banners (`⚡ VLM ANALYZING: 4-Frame Clip Buffer → Qwen3-VL:8B`) confirm active background reasoning and tracking status without blocking video playback.
+7. **Conversational SafeSQL Auditing**: Security officers query recorded events in plain English ("*Show all tailgating events from camera 1 today*"). A local LLM compiles the query into single, read-only `SELECT` statements strictly audited against SQLite.
+8. **Industrial SOC Console**: Zero-framework, dark command-center interface with HUD overlays, live zones, confidence selectors, keyboard shortcuts, automated report generation, and full audit transparency.
 
 ---
 
