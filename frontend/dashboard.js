@@ -15,6 +15,7 @@
   let clockTimer = null;
   let fpsCounter = 0;
   let lastFpsTime = performance.now();
+  let isCameraStreamActive = false;
 
   // Camera zone polygons (matches backend config/cameras.json)
   const CAMERA_ZONES = {
@@ -51,6 +52,7 @@
     statLatency: $('#stat-latency'),
     statTotal: $('#stat-total'),
     statProcessing: $('#stat-processing'),
+    statProcessingDetail: $('#stat-processing-detail'),
 
     cameraSelect: $('#camera-select'),
     quickWebcamBtn: $('#btn-quick-webcam'),
@@ -127,9 +129,7 @@
     modalLatency: $('#modal-latency'),
     modalTracks: $('#modal-tracks'),
     copyEventBtn: $('#copy-event'),
-    queryLink: $('#query-link'),
-    hudVlmBanner: $('#hud-vlm-banner'),
-    hudVlmBannerText: $('#hud-vlm-banner-text')
+    queryLink: $('#query-link')
   };
 
   // ============ UTILITIES ============
@@ -298,54 +298,53 @@
       const hudAiPill = document.getElementById('hud-ai');
 
       if (cam && cam.is_active && typeof cam.fps === 'number') {
+        isCameraStreamActive = true;
         const displayFps = cam.fps > 0 ? cam.fps.toFixed(1) : '25.0';
         els.hudFps.textContent = `${displayFps} FPS`;
 
         if (vlm.is_busy) {
           const hint = (vlm.current_hint || 'Incident').replace(/_/g, ' ').toUpperCase();
           if (els.statProcessing) {
-            els.statProcessing.textContent = `🧠 VLM Thinking [${hint}]`;
+            els.statProcessing.textContent = 'VLM Analyzing';
             els.statProcessing.style.color = '#f59e0b';
+          }
+          if (els.statProcessingDetail) {
+            els.statProcessingDetail.textContent = `Qwen3-VL [${hint}]`;
           }
           if (hudAi) hudAi.textContent = `VLM ANALYZING: ${hint}`;
           if (hudAiPill) {
             hudAiPill.classList.add('hud-pill--vlm-busy');
             hudAiPill.classList.remove('hud-pill--ai-active');
           }
-          if (els.hudVlmBanner) {
-            els.hudVlmBanner.style.display = 'block';
-            if (els.hudVlmBannerText) {
-              els.hudVlmBannerText.textContent = `⚡ VLM ANALYZING [${hint}]: 4-Frame Clip Buffer → Qwen3-VL:8B`;
-            }
-          }
         } else {
           const tracks = cam.active_tracks || 0;
           if (els.statProcessing) {
-            els.statProcessing.textContent = `Active (${tracks} track${tracks !== 1 ? 's' : ''})`;
+            els.statProcessing.textContent = 'Active Tracking';
             els.statProcessing.style.color = 'var(--accent-cyan)';
+          }
+          if (els.statProcessingDetail) {
+            els.statProcessingDetail.textContent = `${tracks} target${tracks !== 1 ? 's' : ''} tracked (YOLOv11s)`;
           }
           if (hudAi) hudAi.textContent = `AI ACTIVE (${tracks} TRK)`;
           if (hudAiPill) {
             hudAiPill.classList.remove('hud-pill--vlm-busy');
             hudAiPill.classList.add('hud-pill--ai-active');
           }
-          if (els.hudVlmBanner) {
-            els.hudVlmBanner.style.display = 'none';
-          }
         }
       } else if (cam && !cam.is_active) {
+        isCameraStreamActive = false;
         els.hudFps.textContent = 'STANDBY';
         if (els.statProcessing) {
           els.statProcessing.textContent = 'Standby';
           els.statProcessing.style.color = '';
         }
+        if (els.statProcessingDetail) {
+          els.statProcessingDetail.textContent = 'YOLOv11s + Qwen3-VL';
+        }
         if (hudAi) hudAi.textContent = 'STANDBY';
         if (hudAiPill) {
           hudAiPill.classList.remove('hud-pill--vlm-busy');
           hudAiPill.classList.remove('hud-pill--ai-active');
-        }
-        if (els.hudVlmBanner) {
-          els.hudVlmBanner.style.display = 'none';
         }
       }
     } catch (err) {}
@@ -1112,7 +1111,9 @@
       els.statToday.textContent = s.events_today ?? '\u2014';
       els.statTotal.textContent = s.total_events ?? '\u2014';
       els.statLatency.textContent = s.avg_latency_ms ? `${s.avg_latency_ms} ms` : '\u2014 ms';
-      els.statProcessing.textContent = s.pipeline_status || (s.events_today > 0 ? 'Active' : 'Idle');
+      if (!isCameraStreamActive && els.statProcessing) {
+        els.statProcessing.textContent = s.pipeline_status || (s.events_today > 0 ? 'Active' : 'Idle');
+      }
 
       if (s.categories) {
         let total = 0;

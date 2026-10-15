@@ -364,6 +364,11 @@ body::before {
   gap: 2px;
   position: relative;
   transition: border-color var(--transition-fast);
+  height: 98px;
+  min-height: 98px;
+  max-height: 98px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 .telemetry-card:hover {
   border-color: var(--border-default);
@@ -389,13 +394,16 @@ body::before {
 
 .telemetry-value {
   font-family: var(--font-mono);
-  font-size: 1.9rem;
+  font-size: 1.65rem;
   font-weight: 600;
   letter-spacing: -0.03em;
   color: var(--text-primary);
-  line-height: 1.15;
+  line-height: 1.2;
   margin-top: 4px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .telemetry-card--accent .telemetry-value {
   color: var(--accent-cyan);
@@ -405,6 +413,9 @@ body::before {
   font-size: 0.72rem;
   color: var(--text-muted);
   font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Grid Layout: Video Panel + Event Feed */
@@ -646,40 +657,6 @@ body::before {
   to { border-color: rgba(245, 158, 11, 0.95); box-shadow: 0 0 14px rgba(245, 158, 11, 0.5); }
 }
 
-/* Real-Time Live VLM Thinking Banner */
-.hud-vlm-banner {
-  position: absolute;
-  top: 48px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 25;
-  pointer-events: none;
-  animation: fadeInDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.vlm-banner-inner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(15, 23, 42, 0.92);
-  border: 1px solid rgba(245, 158, 11, 0.7);
-  box-shadow: 0 0 20px rgba(245, 158, 11, 0.35);
-  backdrop-filter: blur(8px);
-  padding: 6px 16px;
-  border-radius: var(--radius-pill);
-  color: #fef3c7;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-.vlm-radar-pulse {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #f59e0b;
-  box-shadow: 0 0 10px #f59e0b;
-  animation: pulse-ring 1s infinite;
-}
 
 /* Event Feed Clip Sequence Badges */
 .clip-pill {

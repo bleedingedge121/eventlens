@@ -164,39 +164,6 @@ def _camera_worker_loop(
                 2,
             )
 
-            # AI Inference / Scanning Status Badge on Video Feed
-            vlm_act = get_vlm_activity(camera_id)
-            if vlm_act.get("is_busy") and (time.time() - vlm_act.get("time", 0.0)) < 30.0:
-                hint_str = vlm_act.get("hint", "EVENT").upper()
-                cv2.rectangle(annotated_frame, (w - 280, 10), (w - 14, 38), (15, 23, 42), -1)
-                cv2.rectangle(annotated_frame, (w - 280, 10), (w - 14, 38), (245, 158, 11), 1)
-                # Pulsing amber dot
-                pulse = int(140 + 115 * np.sin(time.time() * 8))
-                cv2.circle(annotated_frame, (w - 264, 24), 6, (0, pulse, 255), -1)
-                cv2.putText(
-                    annotated_frame,
-                    f"VLM THINKING: {hint_str[:12]}",
-                    (w - 250, 29),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.40,
-                    (254, 243, 199),
-                    1,
-                )
-            else:
-                n_trks = len(detections)
-                cv2.rectangle(annotated_frame, (w - 230, 10), (w - 14, 38), (15, 23, 42), -1)
-                cv2.rectangle(annotated_frame, (w - 230, 10), (w - 14, 38), (56, 189, 248), 1)
-                cv2.circle(annotated_frame, (w - 216, 24), 5, (56, 189, 248), -1)
-                cv2.putText(
-                    annotated_frame,
-                    f"AI ACTIVE | TRK: {n_trks}",
-                    (w - 204, 29),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.42,
-                    (224, 242, 254),
-                    1,
-                )
-
             # Encode and cache the latest JPEG for MJPEG stream
             ret, jpeg_buf = cv2.imencode(".jpg", annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
             if ret:

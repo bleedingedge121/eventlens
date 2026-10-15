@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=IBM+Plex+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1.2.0">
+  <link rel="stylesheet" href="styles.css?v=1.3.0">
 </head>
 <body>
   <!-- Top Navigation Bar -->
@@ -118,7 +118,7 @@
           </svg>
         </div>
         <span class="telemetry-value" id="stat-processing">Idle</span>
-        <span class="telemetry-detail">YOLOv11 + ByteTrack status</span>
+        <span class="telemetry-detail" id="stat-processing-detail">YOLOv11 + ByteTrack status</span>
       </div>
     </section>
 
@@ -165,14 +165,6 @@
           <div class="stream-offline-overlay" id="stream-fallback" aria-hidden="true">
             <div class="spinner"></div>
             <span class="stream-offline-text">Awaiting Video Stream Ingestion…</span>
-          </div>
-
-          <!-- Real-Time AI Inference Banner -->
-          <div id="hud-vlm-banner" class="hud-vlm-banner" style="display:none;" aria-live="assertive">
-            <div class="vlm-banner-inner">
-              <span class="vlm-radar-pulse"></span>
-              <span id="hud-vlm-banner-text">VLM ANALYZING: 4-Frame Temporal Clip Buffer → Qwen3-VL:8B</span>
-            </div>
           </div>
 
           <!-- Surveillance HUD -->
@@ -520,6 +512,6 @@
   <!-- Toast Notifications Container -->
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
-  <script type="module" src="dashboard.js?v=1.2.0"></script>
+  <script type="module" src="dashboard.js?v=1.3.0"></script>
 </body>
 </html>
