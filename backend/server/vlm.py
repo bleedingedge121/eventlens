@@ -12,6 +12,7 @@ import base64
 import json
 import logging
 import re
+import threading
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -59,8 +60,9 @@ class VLMClient:
         self.ollama_host = (ollama_host or cfg.get("host", "http://localhost:11434")).rstrip("/")
         self.model_name = model_name or cfg.get("vlm_model", "qwen3-vl:8b")
         self.fallback_model = fallback_model or cfg.get("vlm_fallback_model", "qwen3-vl:8b")
-        self.timeout = timeout_seconds or cfg.get("timeout_seconds", 45)
+        self.timeout = timeout_seconds or cfg.get("timeout_seconds", 60)
         self._available_model: Optional[str] = None  # Cached working model name
+        self._call_lock = threading.Lock()
         logger.info(f"[VLM] Configured: primary={self.model_name}, fallback={self.fallback_model}, timeout={self.timeout}s")
 
     def _resolve_model(self) -> str:
@@ -168,11 +170,11 @@ class VLMClient:
         payload = {
             "model": model or self.model_name,
             "prompt": prompt,
-            "images": images_b64[:2],  # Send at most 2 keyframes to conserve VRAM/latency
+            "images": images_b64[:1],  # Send 1 high-quality resized keyframe for fast, deterministic inference
             "stream": False,
             "options": {
                 "temperature": 0.1,
-                "num_predict": 800,  # Ensure complete reasoning and summary generation
+                "num_predict": 400,  # Ensure complete reasoning and crisp summary without timeout
             },
         }
 
@@ -184,25 +186,53 @@ class VLMClient:
             method="POST",
         )
 
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-            resp_text = body.get("response", "").strip()
-            # If reasoning model stopped before response field, fall back to thinking text
-            if not resp_text and body.get("thinking"):
-                return body.get("thinking", "").strip()
-            return resp_text
+        with self._call_lock:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+                resp_text = body.get("response", "").strip()
+                # If reasoning model stopped before response field, fall back to thinking text
+                if not resp_text and body.get("thinking"):
+                    return body.get("thinking", "").strip()
+                return resp_text
 
     def _prepare_images(self, frames: List[Any]) -> List[str]:
         b64_list = []
         for f in frames:
-            if isinstance(f, bytes):
-                b64_list.append(base64.b64encode(f).decode("utf-8"))
-            elif isinstance(f, str):
-                p = Path(f)
-                if p.is_file():
-                    b64_list.append(base64.b64encode(p.read_bytes()).decode("utf-8"))
-                else:
-                    b64_list.append(f)
+            try:
+                raw_bytes = None
+                if isinstance(f, bytes):
+                    raw_bytes = f
+                elif isinstance(f, str):
+                    p = Path(f)
+                    if p.is_file():
+                        raw_bytes = p.read_bytes()
+                    else:
+                        raw_bytes = base64.b64decode(f)
+
+                if raw_bytes:
+                    import cv2
+                    import numpy as np
+
+                    nparr = np.frombuffer(raw_bytes, np.uint8)
+                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    if img is not None:
+                        h, w = img.shape[:2]
+                        max_dim = 480
+                        if max(h, w) > max_dim:
+                            scale = max_dim / float(max(h, w))
+                            img = cv2.resize(
+                                img,
+                                (int(w * scale), int(h * scale)),
+                                interpolation=cv2.INTER_AREA,
+                            )
+                        _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                        b64_list.append(base64.b64encode(buf.tobytes()).decode("utf-8"))
+                    else:
+                        b64_list.append(base64.b64encode(raw_bytes).decode("utf-8"))
+            except Exception as e:
+                logger.warning(f"[VLM] Image downscale fallback: {e}")
+                if isinstance(f, bytes):
+                    b64_list.append(base64.b64encode(f).decode("utf-8"))
         return b64_list
 
     @staticmethod
