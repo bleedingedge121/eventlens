@@ -97,6 +97,14 @@ function initSearch() {
 function initSourceControl() {
   const input = document.getElementById("source-input");
   const btn = document.getElementById("start-source-btn");
+  const scenarioBtns = document.querySelectorAll(".scenario-btn");
+
+  scenarioBtns.forEach((sBtn) => {
+    sBtn.addEventListener("click", () => {
+      input.value = sBtn.getAttribute("data-src");
+      btn.click();
+    });
+  });
 
   btn.addEventListener("click", async () => {
     const src = input.value.trim() || "0";
