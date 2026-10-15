@@ -286,14 +286,48 @@
       const res = await fetch(`/api/cameras/${currentCamera}`, { cache: 'no-store' });
       if (!res.ok) return;
       const cam = await res.json();
+      const vlm = cam.vlm || {};
+      const hudAi = document.getElementById('hud-ai-text');
+      const hudAiPill = document.getElementById('hud-ai');
+
       if (cam && cam.is_active && typeof cam.fps === 'number') {
         const displayFps = cam.fps > 0 ? cam.fps.toFixed(1) : '25.0';
         els.hudFps.textContent = `${displayFps} FPS`;
-        if (els.statProcessing) {
-          els.statProcessing.textContent = `Active (${cam.active_tracks || 0} tracks)`;
+
+        if (vlm.is_busy) {
+          const hint = (vlm.current_hint || 'Incident').replace(/_/g, ' ').toUpperCase();
+          if (els.statProcessing) {
+            els.statProcessing.textContent = `🧠 VLM Thinking [${hint}]`;
+            els.statProcessing.style.color = '#f59e0b';
+          }
+          if (hudAi) hudAi.textContent = `VLM ANALYZING: ${hint}`;
+          if (hudAiPill) {
+            hudAiPill.classList.add('hud-pill--vlm-busy');
+            hudAiPill.classList.remove('hud-pill--ai-active');
+          }
+        } else {
+          const tracks = cam.active_tracks || 0;
+          if (els.statProcessing) {
+            els.statProcessing.textContent = `Active (${tracks} track${tracks !== 1 ? 's' : ''})`;
+            els.statProcessing.style.color = 'var(--accent-cyan)';
+          }
+          if (hudAi) hudAi.textContent = `AI ACTIVE (${tracks} TRK)`;
+          if (hudAiPill) {
+            hudAiPill.classList.remove('hud-pill--vlm-busy');
+            hudAiPill.classList.add('hud-pill--ai-active');
+          }
         }
       } else if (cam && !cam.is_active) {
         els.hudFps.textContent = 'STANDBY';
+        if (els.statProcessing) {
+          els.statProcessing.textContent = 'Standby';
+          els.statProcessing.style.color = '';
+        }
+        if (hudAi) hudAi.textContent = 'STANDBY';
+        if (hudAiPill) {
+          hudAiPill.classList.remove('hud-pill--vlm-busy');
+          hudAiPill.classList.remove('hud-pill--ai-active');
+        }
       }
     } catch (err) {}
   }
@@ -1042,27 +1076,9 @@
       <div class="spinner" style="width:12px;height:12px;border-width:2px;"></div>
       Connecting…`;
 
-    // If webcam source requested, trigger native browser camera permission prompt
+    // If webcam source requested, auto-disable synthetic lobby overlay zones
     const isWebcam = source === '0' || source.toLowerCase().includes('webcam');
     if (isWebcam) {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        try {
-          const permStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 640 }, height: { ideal: 480 } }
-          });
-          // Release client test stream so driver can bind device
-          permStream.getTracks().forEach(t => t.stop());
-        } catch (pErr) {
-          console.warn('[EventLens] Browser camera permission rejected:', pErr);
-          alert('Camera Permission Required:\nPlease allow camera access in your browser prompt to activate local webcam monitoring.');
-          els.startSourceBtn.disabled = false;
-          els.startSourceBtn.innerHTML = `
-            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            Start Ingestion`;
-          return;
-        }
-      }
-      // When monitoring live webcam, auto-disable synthetic lobby overlay zones
       zonesVisible = false;
       if (els.zonesToggle) els.zonesToggle.setAttribute('aria-pressed', 'false');
       if (els.zonesState) els.zonesState.textContent = 'Off';

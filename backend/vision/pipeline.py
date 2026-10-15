@@ -29,11 +29,23 @@ CONFIG_DIR = BASE_DIR / "config"
 
 # Thread-safe global registries
 _WORKERS: Dict[str, threading.Thread] = {}
+_STOP_EVENTS: Dict[str, threading.Event] = {}
 _RUNNING_FLAGS: Dict[str, bool] = {}
 _INGEST_ENGINES: Dict[str, VideoIngest] = {}
 _LATEST_FRAMES: Dict[str, bytes] = {}
 _CAMERA_METRICS: Dict[str, dict] = {}
+_VLM_ACTIVITY: Dict[str, dict] = {}
 _LOCK = threading.Lock()
+
+
+def set_vlm_activity(camera_id: str, is_busy: bool, hint: str = ""):
+    with _LOCK:
+        _VLM_ACTIVITY[camera_id] = {"is_busy": is_busy, "hint": hint, "time": time.time()}
+
+
+def get_vlm_activity(camera_id: str) -> dict:
+    with _LOCK:
+        return _VLM_ACTIVITY.get(camera_id, {"is_busy": False, "hint": "", "time": 0.0})
 
 
 def load_camera_config(camera_id: str) -> dict:
@@ -87,6 +99,7 @@ def _camera_worker_loop(
     camera_id: str,
     source: str,
     on_candidate: Callable[[dict], None],
+    stop_event: threading.Event,
 ):
     settings = load_settings()
     cam_config = load_camera_config(camera_id)
@@ -117,7 +130,7 @@ def _camera_worker_loop(
 
     try:
         for timestamp_sec, raw_frame in ingest.frames():
-            if not _RUNNING_FLAGS.get(camera_id, False):
+            if stop_event.is_set() or not _RUNNING_FLAGS.get(camera_id, False):
                 break
 
             # 1. Run YOLOv11 + ByteTrack
@@ -150,6 +163,39 @@ def _camera_worker_loop(
                 (240, 246, 252),
                 2,
             )
+
+            # AI Inference / Scanning Status Badge on Video Feed
+            vlm_act = get_vlm_activity(camera_id)
+            if vlm_act.get("is_busy") and (time.time() - vlm_act.get("time", 0.0)) < 30.0:
+                hint_str = vlm_act.get("hint", "EVENT").upper()
+                cv2.rectangle(annotated_frame, (w - 280, 10), (w - 14, 38), (15, 23, 42), -1)
+                cv2.rectangle(annotated_frame, (w - 280, 10), (w - 14, 38), (245, 158, 11), 1)
+                # Pulsing amber dot
+                pulse = int(140 + 115 * np.sin(time.time() * 8))
+                cv2.circle(annotated_frame, (w - 264, 24), 6, (0, pulse, 255), -1)
+                cv2.putText(
+                    annotated_frame,
+                    f"VLM THINKING: {hint_str[:12]}",
+                    (w - 250, 29),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.40,
+                    (254, 243, 199),
+                    1,
+                )
+            else:
+                n_trks = len(detections)
+                cv2.rectangle(annotated_frame, (w - 230, 10), (w - 14, 38), (15, 23, 42), -1)
+                cv2.rectangle(annotated_frame, (w - 230, 10), (w - 14, 38), (56, 189, 248), 1)
+                cv2.circle(annotated_frame, (w - 216, 24), 5, (56, 189, 248), -1)
+                cv2.putText(
+                    annotated_frame,
+                    f"AI ACTIVE | TRK: {n_trks}",
+                    (w - 204, 29),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.42,
+                    (224, 242, 254),
+                    1,
+                )
 
             # Encode and cache the latest JPEG for MJPEG stream
             ret, jpeg_buf = cv2.imencode(".jpg", annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
@@ -188,24 +234,33 @@ def _camera_worker_loop(
     finally:
         ingest.stop()
         with _LOCK:
-            _INGEST_ENGINES.pop(camera_id, None)
-            _RUNNING_FLAGS[camera_id] = False
+            if _STOP_EVENTS.get(camera_id) == stop_event:
+                _INGEST_ENGINES.pop(camera_id, None)
+                _RUNNING_FLAGS[camera_id] = False
 
 
 def start_camera(camera_id: str, source: str, on_candidate: Callable[[dict], None]) -> bool:
     """Spawns or restarts the background vision processing thread for a camera."""
+    old_worker = None
     with _LOCK:
-        # Stop existing worker if active
-        if camera_id in _RUNNING_FLAGS and _RUNNING_FLAGS[camera_id]:
-            _RUNNING_FLAGS[camera_id] = False
-            if camera_id in _INGEST_ENGINES:
-                _INGEST_ENGINES[camera_id].stop()
-            time.sleep(0.2)
+        if camera_id in _STOP_EVENTS:
+            _STOP_EVENTS[camera_id].set()
+        if camera_id in _INGEST_ENGINES:
+            _INGEST_ENGINES[camera_id].stop()
+        _RUNNING_FLAGS[camera_id] = False
+        old_worker = _WORKERS.get(camera_id)
 
+    if old_worker and old_worker.is_alive():
+        old_worker.join(timeout=1.0)
+
+    with _LOCK:
+        stop_event = threading.Event()
+        _STOP_EVENTS[camera_id] = stop_event
         _RUNNING_FLAGS[camera_id] = True
+
         worker = threading.Thread(
             target=_camera_worker_loop,
-            args=(camera_id, source, on_candidate),
+            args=(camera_id, source, on_candidate, stop_event),
             daemon=True,
             name=f"CameraWorker-{camera_id}",
         )
@@ -218,13 +273,13 @@ def start_camera(camera_id: str, source: str, on_candidate: Callable[[dict], Non
 def stop_camera(camera_id: str) -> bool:
     """Stops the vision worker for a specific camera."""
     with _LOCK:
-        if camera_id in _RUNNING_FLAGS:
-            _RUNNING_FLAGS[camera_id] = False
-            if camera_id in _INGEST_ENGINES:
-                _INGEST_ENGINES[camera_id].stop()
-            logger.info(f"[Pipeline] Stopped camera {camera_id}")
-            return True
-        return False
+        if camera_id in _STOP_EVENTS:
+            _STOP_EVENTS[camera_id].set()
+        _RUNNING_FLAGS[camera_id] = False
+        if camera_id in _INGEST_ENGINES:
+            _INGEST_ENGINES[camera_id].stop()
+        logger.info(f"[Pipeline] Stopped camera {camera_id}")
+        return True
 
 
 def get_latest_jpeg(camera_id: str) -> bytes:
@@ -242,6 +297,7 @@ def get_camera_status(camera_id: str) -> dict:
     with _LOCK:
         is_active = _RUNNING_FLAGS.get(camera_id, False)
         metrics = _CAMERA_METRICS.get(camera_id, {})
+        vlm_act = _VLM_ACTIVITY.get(camera_id, {"is_busy": False, "hint": "", "time": 0.0})
         return {
             "camera_id": camera_id,
             "is_active": is_active,
@@ -249,6 +305,7 @@ def get_camera_status(camera_id: str) -> dict:
             "processed_frames": metrics.get("processed_frames", 0),
             "active_tracks": metrics.get("active_tracks", 0),
             "source": metrics.get("source", "unassigned"),
+            "vlm_activity": vlm_act,
         }
 
 

@@ -199,7 +199,9 @@ def delete_all_events():
 
 @app.get("/api/stats")
 def get_stats():
-    return db.get_stats()
+    res = db.get_stats()
+    res["vlm"] = vlm.get_status()
+    return res
 
 
 @app.post("/api/chat")
@@ -228,13 +230,19 @@ def delete_source(camera_id: str):
 @app.get("/api/cameras")
 def get_cameras():
     """Returns active cameras and their real-time telemetry."""
-    return {"cameras": list_active_cameras()}
+    cams = list_active_cameras()
+    v_stat = vlm.get_status()
+    for c in cams:
+        c["vlm"] = v_stat
+    return {"cameras": cams}
 
 
 @app.get("/api/cameras/{camera_id}")
 def get_camera(camera_id: str):
     """Returns telemetry for a specific camera."""
-    return get_camera_status(camera_id)
+    status = get_camera_status(camera_id)
+    status["vlm"] = vlm.get_status()
+    return status
 
 
 @app.get("/api/devices")

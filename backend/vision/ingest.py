@@ -210,9 +210,20 @@ class VideoIngest:
                 ret, frame = self.cap.read()
 
                 if not ret or frame is None:
-                    if self.loop_video and self.cap is not None:
-                        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        continue
+                    if self.loop_video:
+                        if self.cap is not None:
+                            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                            ret, frame = self.cap.read()
+                            if not ret or frame is None:
+                                self.cap.release()
+                                self.cap = self._open_capture()
+                                if self.cap is not None:
+                                    ret, frame = self.cap.read()
+                        if ret and frame is not None:
+                            pass
+                        else:
+                            time.sleep(0.05)
+                            continue
                     else:
                         break
 

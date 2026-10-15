@@ -617,6 +617,35 @@ body::before {
   animation: pulse-ring 1.5s infinite;
 }
 
+.hud-pill--ai {
+  color: var(--accent-cyan);
+  border-color: rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.10);
+  transition: all var(--transition-fast);
+}
+.hud-pill--vlm-busy {
+  color: #fbbf24 !important;
+  border-color: rgba(245, 158, 11, 0.7) !important;
+  background: rgba(245, 158, 11, 0.22) !important;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.35);
+  animation: vlm-pulse 1s infinite alternate ease-in-out;
+}
+.hud-pill--vlm-busy .ai-dot {
+  background: #f59e0b !important;
+  box-shadow: 0 0 8px #f59e0b !important;
+}
+.ai-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 6px var(--accent-cyan);
+}
+@keyframes vlm-pulse {
+  from { border-color: rgba(245, 158, 11, 0.4); }
+  to { border-color: rgba(245, 158, 11, 0.95); box-shadow: 0 0 14px rgba(245, 158, 11, 0.5); }
+}
+
 .viewport-toolbar {
   position: absolute;
   top: var(--space-3);

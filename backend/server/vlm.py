@@ -13,6 +13,7 @@ import json
 import logging
 import re
 import threading
+import time
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -63,7 +64,23 @@ class VLMClient:
         self.timeout = timeout_seconds or cfg.get("timeout_seconds", 60)
         self._available_model: Optional[str] = None  # Cached working model name
         self._call_lock = threading.Lock()
+        self.is_busy: bool = False
+        self.current_hint: str = ""
+        self.current_camera: str = ""
+        self.task_start_time: float = 0.0
         logger.info(f"[VLM] Configured: primary={self.model_name}, fallback={self.fallback_model}, timeout={self.timeout}s")
+
+    def get_status(self) -> dict:
+        """Returns live execution state of the VLM engine."""
+        now = time.time()
+        elapsed = round(now - self.task_start_time, 1) if (self.is_busy and self.task_start_time > 0) else 0.0
+        return {
+            "is_busy": self.is_busy,
+            "current_hint": self.current_hint,
+            "camera_id": self.current_camera,
+            "elapsed_sec": elapsed,
+            "model": self._available_model or self.model_name,
+        }
 
     def _resolve_model(self) -> str:
         """Determines which VLM model to use — tries primary, falls back to fallback."""
@@ -104,58 +121,80 @@ class VLMClient:
     def describe_event(self, candidate: Dict[str, Any]) -> Dict[str, Any]:
         """Takes a candidate event dictionary and calls Ollama VLM."""
         category_hint = candidate.get("category_hint", "suspicious_activity")
+        camera_id = candidate.get("camera_id", "cam1")
         frames_b64 = self._prepare_images(candidate.get("frames", []))
 
         if not frames_b64:
             logger.warning("[VLM] No frames available for VLM analysis — using rule fallback")
             return self._make_fallback(category_hint)
 
-        prompt = (
-            f"You are a surveillance security AI analyzing CCTV frames from camera {candidate.get('camera_id', 'cam1')}.\n"
-            f"The rule engine flagged a potential '{category_hint}' event based on motion patterns.\n\n"
-            "Look at the image(s) carefully. Describe EXACTLY what you see happening:\n"
-            "- How many people are visible?\n"
-            "- What are they doing? (walking, running, lying down, struggling, standing still)\n"
-            "- Is there any physical contact, violence, or someone on the ground?\n"
-            "- Are there any weapons (guns, knives, objects being swung)?\n"
-            "- Is the scene normal activity or genuinely concerning?\n\n"
-            "Classify into EXACTLY one category:\n"
-            "- 'person_down': Someone lying on the ground, collapsed, fallen, or incapacitated\n"
-            "- 'fighting': Active physical struggle, punching, kicking, shoving between 2+ people\n"
-            "- 'suspicious_activity': Someone brandishing a weapon, loitering in restricted area, or acting threateningly\n"
-            "- 'tailgating': Two people passing through a door/gate together where only one should\n"
-            "- 'crowd_incident': Dangerously large crowd packing, stampede, or crush risk\n"
-            "- 'none': Normal, routine activity — people walking, talking, sitting normally\n\n"
-            "CRITICAL: Be honest. If this looks like NORMAL activity (people just walking, sitting, or standing near each other), classify as 'none'.\n"
-            "If a weapon is visible, mention '[WEAPON DETECTED]' in summary.\n\n"
-            "Respond ONLY with valid JSON:\n"
-            '{"category": "category_name", "confidence": 0.85, "summary": "2-3 factual sentences describing what you see in the scene."}'
-        )
+        self.is_busy = True
+        self.current_hint = category_hint
+        self.current_camera = camera_id
+        self.task_start_time = time.time()
 
-        model = self._resolve_model()
         try:
-            raw_response = self._call_ollama(prompt, frames_b64, model)
-            parsed = self._parse_json_response(raw_response)
-            if parsed and parsed.get("category") in VALID_CATEGORIES:
-                cat = parsed["category"]
-                conf = float(parsed.get("confidence", 0.75))
-                summary = str(parsed.get("summary", "")).strip()
-                if not summary or len(summary) < 10:
-                    summary = TEMPLATE_SUMMARIES.get(cat, "Event detected by AI vision analysis.")
-                return {
-                    "category": cat,
-                    "confidence": max(0.0, min(1.0, conf)),
-                    "summary": summary,
-                }
-            else:
-                logger.warning(f"[VLM] Model returned unparseable response: {raw_response[:200]}")
-        except urllib.error.URLError as e:
-            logger.error(f"[VLM] Ollama connection failed ({model}): {e}")
-        except Exception as e:
-            logger.error(f"[VLM] VLM call failed ({model}): {e}")
+            from backend.vision.pipeline import set_vlm_activity
+            set_vlm_activity(camera_id, True, category_hint)
+        except Exception:
+            pass
 
-        # Defensive Fallback: use rule category hint with lowered confidence
-        return self._make_fallback(category_hint)
+        try:
+            prompt = (
+                f"You are a surveillance security AI analyzing CCTV frames from camera {camera_id}.\n"
+                f"The rule engine flagged a potential '{category_hint}' event based on motion patterns.\n\n"
+                "Look at the image(s) carefully. Describe EXACTLY what you see happening:\n"
+                "- How many people are visible?\n"
+                "- What are they doing? (walking, running, lying down, struggling, standing still)\n"
+                "- Is there any physical contact, violence, or someone on the ground?\n"
+                "- Are there any weapons (guns, knives, objects being swung)?\n"
+                "- Is the scene normal activity or genuinely concerning?\n\n"
+                "Classify into EXACTLY one category:\n"
+                "- 'person_down': Someone lying on the ground, collapsed, fallen, or incapacitated\n"
+                "- 'fighting': Active physical struggle, punching, kicking, shoving between 2+ people\n"
+                "- 'suspicious_activity': Someone brandishing a weapon, loitering in restricted area, or acting threateningly\n"
+                "- 'tailgating': Two people passing through a door/gate together where only one should\n"
+                "- 'crowd_incident': Dangerously large crowd packing, stampede, or crush risk\n"
+                "- 'none': Normal, routine activity — people walking, talking, sitting normally\n\n"
+                "CRITICAL: Be honest. If this looks like NORMAL activity (people just walking, sitting, or standing near each other), classify as 'none'.\n"
+                "If a weapon is visible, mention '[WEAPON DETECTED]' in summary.\n\n"
+                "Respond ONLY with valid JSON:\n"
+                '{"category": "category_name", "confidence": 0.85, "summary": "2-3 factual sentences describing what you see in the scene."}'
+            )
+
+            model = self._resolve_model()
+            try:
+                raw_response = self._call_ollama(prompt, frames_b64, model)
+                parsed = self._parse_json_response(raw_response)
+                if parsed and parsed.get("category") in VALID_CATEGORIES:
+                    cat = parsed["category"]
+                    conf = float(parsed.get("confidence", 0.75))
+                    summary = str(parsed.get("summary", "")).strip()
+                    if not summary or len(summary) < 10:
+                        summary = TEMPLATE_SUMMARIES.get(cat, "Event detected by AI vision analysis.")
+                    return {
+                        "category": cat,
+                        "confidence": max(0.0, min(1.0, conf)),
+                        "summary": summary,
+                    }
+                else:
+                    logger.warning(f"[VLM] Model returned unparseable response: {raw_response[:200]}")
+            except urllib.error.URLError as e:
+                logger.error(f"[VLM] Ollama connection failed ({model}): {e}")
+            except Exception as e:
+                logger.error(f"[VLM] VLM call failed ({model}): {e}")
+
+            # Defensive Fallback: use rule category hint with lowered confidence
+            return self._make_fallback(category_hint)
+        finally:
+            self.is_busy = False
+            self.current_hint = ""
+            self.task_start_time = 0.0
+            try:
+                from backend.vision.pipeline import set_vlm_activity
+                set_vlm_activity(camera_id, False, "")
+            except Exception:
+                pass
 
     def _make_fallback(self, category_hint: str) -> Dict[str, Any]:
         """Creates a fallback result when VLM is unavailable."""
