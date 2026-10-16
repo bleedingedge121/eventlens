@@ -26,6 +26,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import numpy as np
+
 from backend.server.chat import ChatEngine
 from backend.server.db import Database
 from backend.server.vlm import VLMClient
@@ -35,6 +37,8 @@ from backend.vision.pipeline import (
     stop_camera,
     get_camera_status,
     list_active_cameras,
+    seek_camera,
+    set_camera_playback,
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -72,6 +76,15 @@ MIN_EVENT_CONFIDENCE = 0.50
 class SourceRequest(BaseModel):
     camera_id: str
     source: str
+
+
+class SeekRequest(BaseModel):
+    frame_idx: Optional[int] = None
+    ratio: Optional[float] = None
+
+
+class PlaybackRequest(BaseModel):
+    paused: bool
 
 
 class ChatRequest(BaseModel):
@@ -136,9 +149,32 @@ def on_candidate_event(candidate: dict):
         if clip_frames:
             clip_dir = CLIPS_DIR / str(event_id)
             clip_dir.mkdir(parents=True, exist_ok=True)
+            decoded_images = []
             for i, frame_bytes in enumerate(clip_frames):
                 if isinstance(frame_bytes, bytes):
                     (clip_dir / f"frame_{i:02d}.jpg").write_bytes(frame_bytes)
+                    try:
+                        nparr = np.frombuffer(frame_bytes, np.uint8)
+                        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        if img is not None:
+                            decoded_images.append(img)
+                    except Exception:
+                        pass
+
+            # Write high-compatibility MP4 video clip
+            if decoded_images:
+                try:
+                    ch, cw = decoded_images[0].shape[:2]
+                    clip_mp4_path = clip_dir / "clip.mp4"
+                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                    out = cv2.VideoWriter(str(clip_mp4_path), fourcc, 10.0, (cw, ch))
+                    for c_img in decoded_images:
+                        out.write(c_img)
+                    out.release()
+                    logger.info(f"[Server] Generated MP4 video clip: {clip_mp4_path}")
+                except Exception as e:
+                    logger.warning(f"[Server] MP4 clip generation error: {e}")
+
             logger.info(f"[Server] Saved {len(clip_frames)} clip frames to {clip_dir}")
 
 
@@ -337,6 +373,29 @@ def get_event_clips(event_id: int):
         "frames": [f"/clips/{event_id}/{f}" for f in frames],
         "count": len(frames),
     }
+
+
+@app.get("/api/clips/{event_id}/video")
+def get_event_video_clip(event_id: int):
+    """Returns the recorded MP4 event clip if available."""
+    clip_mp4 = CLIPS_DIR / str(event_id) / "clip.mp4"
+    if not clip_mp4.exists():
+        raise HTTPException(status_code=404, detail="Video clip not found")
+    return FileResponse(str(clip_mp4), media_type="video/mp4")
+
+
+@app.post("/api/cameras/{camera_id}/seek")
+def post_seek_camera(camera_id: str, req: SeekRequest):
+    """Seeks the video ingest playhead to a frame number or ratio."""
+    success = seek_camera(camera_id, frame_idx=req.frame_idx, ratio=req.ratio)
+    return {"success": success, "camera_id": camera_id}
+
+
+@app.post("/api/cameras/{camera_id}/playback")
+def post_camera_playback(camera_id: str, req: PlaybackRequest):
+    """Controls play/pause status of camera stream."""
+    success = set_camera_playback(camera_id, paused=req.paused)
+    return {"success": success, "camera_id": camera_id, "paused": req.paused}
 
 
 # Mount frontend files
