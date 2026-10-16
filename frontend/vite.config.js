@@ -19,7 +19,8 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api': backendTarget,
         '/stream': backendTarget,
-        '/frames': backendTarget
+        '/frames': backendTarget,
+        '/clips': backendTarget
       }
     }
   }

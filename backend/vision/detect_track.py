@@ -232,7 +232,6 @@ class DetectorTracker:
         # 1. Run Ultralytics YOLOv11 + ByteTrack (with FP16 Tensor Core acceleration on CUDA)
         if self.model is not None:
             try:
-                use_half = bool(isinstance(self.device, str) and self.device.startswith("cuda"))
                 results = self.model.track(
                     source=frame,
                     persist=True,
@@ -240,7 +239,6 @@ class DetectorTracker:
                     conf=self.conf_thresh,
                     tracker=self.tracker_config,
                     device=self.device,
-                    half=use_half,
                     verbose=False,
                 )
 

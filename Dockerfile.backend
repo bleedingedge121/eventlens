@@ -25,7 +25,7 @@ COPY frontend/ ./frontend/
 COPY scripts/ ./scripts/
 
 # Create data directories
-RUN mkdir -p data/frames data/videos
+RUN mkdir -p data/frames data/videos data/clips
 
 EXPOSE 8000
 
