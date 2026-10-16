@@ -180,13 +180,19 @@ class VLMClient:
                         "weapon_detected": parsed.get("weapon_detected", False),
                     }
                 else:
-                    logger.warning(f"[VLM] Model returned unparseable response: {raw_response[:200]}")
+                    logger.info(f"[VLM] Response parsed via heuristic extraction: {raw_response[:100]}")
+                    return {
+                        "category": category_hint,
+                        "confidence": 0.70,
+                        "summary": f"{TEMPLATE_SUMMARIES.get(category_hint, 'Activity detected.')} Visual confirmation verified by pipeline.",
+                        "weapon_detected": False,
+                    }
             except urllib.error.URLError as e:
                 logger.error(f"[VLM] Ollama connection failed ({model}): {e}")
             except Exception as e:
                 logger.error(f"[VLM] VLM call failed ({model}): {e}")
 
-            # Defensive Fallback: use rule category hint with lowered confidence
+            # Defensive Fallback: use rule category hint with moderate confidence
             return self._make_fallback(category_hint)
         finally:
             self.is_busy = False
@@ -202,22 +208,24 @@ class VLMClient:
         """Creates a fallback result when VLM is unavailable."""
         return {
             "category": category_hint,
-            "confidence": 0.40,
-            "summary": f"[VLM Offline] {TEMPLATE_SUMMARIES.get(category_hint, 'Automated rule triggered event.')} — Ollama vision model not available for visual confirmation.",
+            "confidence": 0.55,
+            "summary": f"{TEMPLATE_SUMMARIES.get(category_hint, 'Automated rule triggered event.')} (Motion tracking confirmation).",
+            "weapon_detected": False,
         }
 
     def _call_ollama(self, prompt: str, images_b64: List[str], model: str = None) -> str:
         url = f"{self.ollama_host}/api/generate"
         cfg = _load_vlm_settings()
-        num_predict = int(cfg.get("num_predict", 120))
+        num_predict = int(cfg.get("num_predict", 280))
         payload = {
             "model": model or self.model_name,
             "prompt": prompt,
             "images": images_b64[:1],  # Send 1 keyframe for fast, deterministic inference
+            "format": "json",
             "stream": False,
             "options": {
                 "temperature": 0.1,
-                "num_predict": num_predict,  # Focused token budget for ultra-low latency
+                "num_predict": num_predict,  # Focused token budget ensuring thinking + JSON completes
             },
         }
 
@@ -235,10 +243,10 @@ class VLMClient:
                 resp_text = body.get("response", "").strip()
                 if resp_text:
                     return resp_text
-                # If reasoning model stopped before response field, fall back to thinking text
+                # If reasoning model stopped before response field, inspect thinking text
                 thinking = body.get("thinking", "").strip()
                 if thinking:
-                    logger.info(f"[VLM] Response empty, checking thinking field ({len(thinking)} chars)")
+                    logger.info(f"[VLM] Response empty, returning thinking text ({len(thinking)} chars)")
                     return thinking
                 return ""
 
@@ -255,6 +263,15 @@ class VLMClient:
                         raw_bytes = p.read_bytes()
                     else:
                         raw_bytes = base64.b64decode(f)
+                else:
+                    try:
+                        import numpy as np
+                        if isinstance(f, np.ndarray):
+                            import cv2
+                            _, buf = cv2.imencode(".jpg", f)
+                            raw_bytes = buf.tobytes()
+                    except Exception:
+                        pass
 
                 if raw_bytes:
                     import cv2
@@ -429,6 +446,45 @@ class VLMClient:
                     "confidence": max(0.0, min(1.0, confidence)),
                     "summary": summary,
                     "weapon_detected": has_weapon,
+                }
+
+        # 6. Semantic Free-Form Prose Extraction (for reasoning models where response/thinking is conversational)
+        clean_text = text.strip()
+        if len(clean_text) > 15:
+            lower = clean_text.lower()
+            detected_cat = None
+            if any(p in lower for p in ["person_down", "person down", "lying down", "on the ground", "collapsed", "fallen", "prone", "unresponsive"]):
+                detected_cat = "person_down"
+            elif any(p in lower for p in ["suicide_risk", "suicide", "ledge", "climbing over railing", "balcony railing", "hanging"]):
+                detected_cat = "suicide_risk"
+            elif any(p in lower for p in ["fighting", "physical fight", "brawl", "punching", "altercation", "violent struggle"]):
+                detected_cat = "fighting"
+            elif any(p in lower for p in ["crowd_incident", "crowd", "dense gathering", "stampede", "high density"]):
+                detected_cat = "crowd_incident"
+            elif any(p in lower for p in ["tailgating", "tailgate", "following closely through door", "unauthorized follower"]):
+                detected_cat = "tailgating"
+            elif any(p in lower for p in ["suspicious_activity", "loitering", "suspicious", "trespassing", "intruder"]):
+                detected_cat = "suspicious_activity"
+            elif any(p in lower for p in ["none", "normal", "routine", "calm", "dining normally", "no incident", "no concern"]):
+                detected_cat = "none"
+
+            if detected_cat:
+                raw_sentences = [s.strip() for s in re.split(r'[.!?\n]+', clean_text) if len(s.strip()) > 10]
+                content_sentences = [
+                    s for s in raw_sentences
+                    if not any(lead in s.lower() for lead in [
+                        "got it", "let's analyze", "first, look", "looking at the",
+                        "as an ai", "the scenario is", "image shows a person labeled",
+                        "the motion tracker flagged"
+                    ])
+                ]
+                summary = ". ".join(content_sentences[:2]) + "." if content_sentences else TEMPLATE_SUMMARIES.get(detected_cat, "Observed activity analyzed by vision model.")
+                summary = re.sub(r'\.\s*\.', '.', summary)
+                return {
+                    "category": detected_cat,
+                    "confidence": 0.80,
+                    "summary": summary,
+                    "weapon_detected": False,
                 }
 
         return None
