@@ -3,26 +3,50 @@
     "name": "Main Entrance Lobby",
     "description": "Monitors entrance turnstiles, main access door and vestibule",
     "door_zone": [
-      [180, 240],
-      [420, 240],
-      [420, 480],
-      [180, 480]
+      [
+        180,
+        240
+      ],
+      [
+        420,
+        240
+      ],
+      [
+        420,
+        480
+      ],
+      [
+        180,
+        480
+      ]
     ],
     "restricted_zones": [
       {
         "name": "Restricted Server Room Corridor",
         "polygon": [
-          [500, 100],
-          [620, 100],
-          [620, 350],
-          [500, 350]
+          [
+            500,
+            100
+          ],
+          [
+            620,
+            100
+          ],
+          [
+            620,
+            350
+          ],
+          [
+            500,
+            350
+          ]
         ],
         "max_loitering_seconds": 6
       }
     ],
     "crowd_threshold": 7,
     "tailgating_time_window_seconds": 1.8,
-    "person_down_aspect_ratio_threshold": 0.70,
+    "person_down_aspect_ratio_threshold": 0.7,
     "person_down_still_seconds": 0.8,
     "fighting_overlap_iou": 0.38,
     "fighting_speed_threshold_pixels_per_sec": 105.0,
@@ -30,10 +54,22 @@
       {
         "name": "Atrium Balcony Railing",
         "polygon": [
-          [50, 20],
-          [590, 20],
-          [590, 110],
-          [50, 110]
+          [
+            50,
+            20
+          ],
+          [
+            590,
+            20
+          ],
+          [
+            590,
+            110
+          ],
+          [
+            50,
+            110
+          ]
         ],
         "max_dwell_seconds": 2.5
       }
@@ -43,26 +79,50 @@
     "name": "Office Floor Corridor",
     "description": "Hallway camera monitoring common areas and elevator lobby",
     "door_zone": [
-      [100, 200],
-      [300, 200],
-      [300, 450],
-      [100, 450]
+      [
+        100,
+        200
+      ],
+      [
+        300,
+        200
+      ],
+      [
+        300,
+        450
+      ],
+      [
+        100,
+        450
+      ]
     ],
     "restricted_zones": [
       {
         "name": "Emergency Exit Stairwell",
         "polygon": [
-          [450, 50],
-          [580, 50],
-          [580, 300],
-          [450, 300]
+          [
+            450,
+            50
+          ],
+          [
+            580,
+            50
+          ],
+          [
+            580,
+            300
+          ],
+          [
+            450,
+            300
+          ]
         ],
         "max_loitering_seconds": 8
       }
     ],
     "crowd_threshold": 7,
     "tailgating_time_window_seconds": 1.8,
-    "person_down_aspect_ratio_threshold": 0.70,
+    "person_down_aspect_ratio_threshold": 0.7,
     "person_down_still_seconds": 0.8,
     "fighting_overlap_iou": 0.38,
     "fighting_speed_threshold_pixels_per_sec": 105.0,
@@ -70,10 +130,22 @@
       {
         "name": "Stairwell Drop Ledge",
         "polygon": [
-          [400, 20],
-          [620, 20],
-          [620, 120],
-          [400, 120]
+          [
+            400,
+            20
+          ],
+          [
+            620,
+            20
+          ],
+          [
+            620,
+            120
+          ],
+          [
+            400,
+            120
+          ]
         ],
         "max_dwell_seconds": 2.5
       }

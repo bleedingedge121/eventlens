@@ -339,7 +339,7 @@ def create_camera(req: CameraCreateRequest):
     if req.auto_start and req.source:
         started = start_camera(cam_id, req.source, on_candidate=on_candidate_event)
 
-    return {"success": True, "camera_id": cam_id, "camera": cam_dict, "started": started}
+    return {"success": True, "ok": True, "camera_id": cam_id, "camera": cam_dict, "started": started}
 
 
 @app.delete("/api/cameras/{camera_id}")
@@ -357,7 +357,7 @@ def delete_camera(camera_id: str):
                     json.dump(configs, f, indent=2)
         except Exception as e:
             logger.warning(f"Error removing camera {camera_id} from config: {e}")
-    return {"success": True, "camera_id": camera_id}
+    return {"success": True, "ok": True, "camera_id": camera_id}
 
 
 @app.get("/api/cameras/{camera_id}")
@@ -479,14 +479,14 @@ def get_event_video_clip(event_id: int):
 def post_seek_camera(camera_id: str, req: SeekRequest):
     """Seeks the video ingest playhead to a frame number or ratio."""
     success = seek_camera(camera_id, frame_idx=req.frame_idx, ratio=req.ratio)
-    return {"success": success, "camera_id": camera_id}
+    return {"success": success, "ok": success, "camera_id": camera_id}
 
 
 @app.post("/api/cameras/{camera_id}/playback")
 def post_camera_playback(camera_id: str, req: PlaybackRequest):
     """Controls play/pause status of camera stream."""
     success = set_camera_playback(camera_id, paused=req.paused)
-    return {"success": success, "camera_id": camera_id, "paused": req.paused}
+    return {"success": success, "ok": success, "camera_id": camera_id, "paused": req.paused}
 
 
 # Mount frontend files

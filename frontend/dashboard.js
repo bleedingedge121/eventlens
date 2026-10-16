@@ -9,6 +9,7 @@
   let minConfidence = 0.5;
   let zonesVisible = false;
   let audioEnabled = true;
+  let lastEventsSig = null;
   let lastEventId = 0;
   let currentEvents = [];
   let pollTimer = null;
@@ -16,6 +17,12 @@
   let fpsCounter = 0;
   let lastFpsTime = performance.now();
   let isCameraStreamActive = false;
+
+  let currentViewMode = 'single'; // 'single' | 'grid'
+  let currentTimelineMode = 'combined'; // 'combined' | 'multitrack'
+  let isUserDraggingScrubber = false;
+  let currentCameraMetrics = { frame_idx: 0, total_frames: 0, pts_sec: 0, is_paused: false, progress_ratio: 1.0 };
+  let cameraConfigs = {};
 
   // Camera zone polygons (matches backend config/cameras.json)
   const CAMERA_ZONES = {
@@ -32,10 +39,11 @@
   // Category metadata for UI
   const CATEGORY_META = {
     tailgating: { label: 'Tailgating', color: '#f59e0b', severity: 'warning', badgeClass: 'badge--tailgating' },
-    person_down: { label: 'Person Down', color: '#f43f5e', severity: 'critical', badgeClass: 'badge--person_down' },
+    person_down: { label: 'Person Down', color: '#ff5c7a', severity: 'critical', badgeClass: 'badge--person_down' },
     fighting: { label: 'Fighting', color: '#ff5722', severity: 'critical', badgeClass: 'badge--fighting' },
     crowd_incident: { label: 'Crowd', color: '#818cf8', severity: 'warning', badgeClass: 'badge--crowd_incident' },
-    suspicious_activity: { label: 'Suspicious', color: '#38bdf8', severity: 'notice', badgeClass: 'badge--suspicious_activity' }
+    suspicious_activity: { label: 'Suspicious', color: '#38bdf8', severity: 'notice', badgeClass: 'badge--suspicious_activity' },
+    suicide_risk: { label: 'Suicide / Fall Hazard', color: '#c084fc', severity: 'critical', badgeClass: 'badge--suicide_risk' }
   };
 
   // ============ DOM REFERENCES ============
@@ -53,6 +61,31 @@
     statTotal: $('#stat-total'),
     statProcessing: $('#stat-processing'),
     statProcessingDetail: $('#stat-processing-detail'),
+
+    btnViewSingle: $('#btn-view-single'),
+    btnViewGrid: $('#btn-view-grid'),
+    viewportGrid: $('#viewport-grid'),
+    btnAddCamera: $('#btn-add-camera'),
+    btnDelCamera: $('#btn-del-camera'),
+    cameraModal: $('#camera-modal'),
+    cameraForm: $('#cam-form'),
+    cameraModalClose: $('#cam-modal-close'),
+    cameraModalCancel: $('#cam-modal-cancel'),
+
+    nvrScrubber: $('#nvr-scrubber'),
+    nvrSlider: $('#nvr-slider'),
+    nvrPlayPause: $('#nvr-play-pause'),
+    nvrPlayIcon: $('#nvr-play-icon'),
+    nvrStepBack: $('#nvr-step-back'),
+    nvrStepFwd: $('#nvr-step-fwd'),
+    nvrLiveSnap: $('#nvr-live-snap'),
+    nvrPtsDisplay: $('#nvr-pts-display'),
+    nvrFrameDisplay: $('#nvr-frame-display'),
+    nvrMarkers: $('#nvr-markers'),
+
+    tabTlCombined: $('#tab-tl-combined'),
+    tabTlMultitrack: $('#tab-tl-multitrack'),
+    timelineSwimlanes: $('#timeline-swimlanes'),
 
     cameraSelect: $('#camera-select'),
     quickWebcamBtn: $('#btn-quick-webcam'),
@@ -82,7 +115,8 @@
       person_down: $('#count-person_down'),
       fighting: $('#count-fighting'),
       crowd_incident: $('#count-crowd_incident'),
-      suspicious_activity: $('#count-suspicious_activity')
+      suspicious_activity: $('#count-suspicious_activity'),
+      suicide_risk: $('#count-suicide_risk')
     },
     confidenceFilter: $('#confidence-filter'),
     eventFeed: $('#event-feed'),
@@ -114,6 +148,9 @@
     modalCategoryBadge: $('#modal-category-badge'),
     modalTitle: $('#modal-title'),
     modalImage: $('#modal-image'),
+    modalVideoPlayer: $('#modal-video-player'),
+    modalBtnViewPhoto: $('#modal-btn-view-photo'),
+    modalBtnViewVideo: $('#modal-btn-view-video'),
     modalCaptionText: $('#modal-caption-text'),
     modalCaptionTag: $('#modal-caption-tag'),
     modalClipsContainer: $('#modal-clips-container'),
@@ -241,16 +278,16 @@
         i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       });
       ctx.closePath();
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
       ctx.fill();
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.85)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
       ctx.lineWidth = 1.8;
       ctx.setLineDash([5, 4]);
       ctx.stroke();
       ctx.setLineDash([]);
 
       const [fx, fy] = config.doorZone[0];
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.95)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
       ctx.font = '600 10px "IBM Plex Mono", monospace';
       ctx.fillText('DOOR ZONE // CH-01', fx * scaleX + 6, fy * scaleY + 14);
     }
@@ -265,16 +302,16 @@
           i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
         });
         ctx.closePath();
-        ctx.fillStyle = 'rgba(244, 63, 94, 0.08)';
+        ctx.fillStyle = 'rgba(239, 35, 60, 0.08)';
         ctx.fill();
-        ctx.strokeStyle = 'rgba(244, 63, 94, 0.85)';
+        ctx.strokeStyle = 'rgba(239, 35, 60, 0.85)';
         ctx.lineWidth = 1.8;
         ctx.setLineDash([5, 4]);
         ctx.stroke();
         ctx.setLineDash([]);
 
         const [fx, fy] = z.poly[0];
-        ctx.fillStyle = 'rgba(244, 63, 94, 0.95)';
+        ctx.fillStyle = 'rgba(239, 35, 60, 0.95)';
         ctx.font = '600 10px "IBM Plex Mono", monospace';
         ctx.fillText(z.name.toUpperCase() + ' // RESTRICTED', fx * scaleX + 6, fy * scaleY + 14);
       });
@@ -288,11 +325,11 @@
     els.hudCamera.textContent = `CAM: ${currentCamera.toUpperCase()}`;
   }
 
-  async function fetchCameraTelemetry() {
+  async function fetchCameraTelemetry(signal) {
     try {
-      const res = await fetch(`/api/cameras/${currentCamera}`, { cache: 'no-store' });
-      if (!res.ok) return;
-      const cam = await res.json();
+      const camId = currentCamera;
+      const cam = await EL.getJson(`/api/cameras/${encodeURIComponent(camId)}`, { signal });
+      if (camId !== currentCamera) return; // user switched cameras mid-flight: drop stale reply
       const vlm = cam.vlm || {};
       const hudAi = document.getElementById('hud-ai-text');
       const hudAiPill = document.getElementById('hud-ai');
@@ -346,8 +383,45 @@
           hudAiPill.classList.remove('hud-pill--vlm-busy');
           hudAiPill.classList.remove('hud-pill--ai-active');
         }
+        if (els.nvrFrameDisplay) els.nvrFrameDisplay.textContent = 'FRM: #00000';
+        if (els.nvrPtsDisplay) els.nvrPtsDisplay.textContent = 'PTS: 00:00:00';
       }
-    } catch (err) {}
+
+      // Update NVR recording scrubber metrics & HUD
+      if (cam) {
+        currentCameraMetrics = {
+          frame_idx: cam.frame_idx || 0,
+          total_frames: cam.total_frames || 0,
+          pts_sec: cam.pts_sec || 0.0,
+          progress_ratio: typeof cam.progress_ratio === 'number' ? cam.progress_ratio : 1.0,
+          is_paused: !!cam.is_paused
+        };
+
+        if (els.nvrSlider && !isUserDraggingScrubber) {
+          els.nvrSlider.value = Math.round(currentCameraMetrics.progress_ratio * 1000);
+        }
+        if (els.nvrFrameDisplay) {
+          const frm = currentCameraMetrics.frame_idx;
+          const tot = currentCameraMetrics.total_frames > 0 ? ` / ${currentCameraMetrics.total_frames}` : '';
+          els.nvrFrameDisplay.textContent = `FRM: #${String(frm).padStart(5, '0')}${tot}`;
+        }
+        if (els.nvrPtsDisplay) {
+          const pts = currentCameraMetrics.pts_sec;
+          const mins = Math.floor(pts / 60);
+          const secs = Math.floor(pts % 60);
+          els.nvrPtsDisplay.textContent = `PTS: ${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+        if (els.nvrPlayIcon) {
+          els.nvrPlayIcon.textContent = currentCameraMetrics.is_paused ? '▶' : '⏸';
+        }
+        if (els.nvrLiveSnap) {
+          const isLive = !currentCameraMetrics.is_paused && (currentCameraMetrics.progress_ratio >= 0.98);
+          els.nvrLiveSnap.classList.toggle('active', isLive);
+        }
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') throw err;
+    }
   }
 
   // ============ EVENT FEED RENDERING ============
@@ -379,6 +453,8 @@
           <span>${currentEvents.length ? 'No incidents match current filter criteria.' : 'No incidents recorded yet. Start camera ingestion to begin.'}</span>
         </div>`;
       renderTimeline([]);
+      renderSwimlanes([]);
+      updateScrubberMarkers([]);
       renderBars('#bars-cat', [], e => e.category, c => CATEGORY_META[c]?.label || c, c => CATEGORY_META[c]?.color || 'var(--accent-cyan)');
       renderBars('#bars-cam', [], e => e.camera_id, id => id.toUpperCase(), () => 'var(--accent-cyan)');
       return;
@@ -392,15 +468,16 @@
 
       const keyframeSrc = ev.keyframe_url || `/frames/${ev.id}.jpg`;
       const summaryText = ev.summary || '';
-      const isWeapon = /gun|firearm|handgun|pistol|rifle|knife|blade|weapon|brandish|shot|shooting/i.test(summaryText) || summaryText.includes('[WEAPON DETECTED]');
-      const weaponBadge = isWeapon
+      const hasStrictWeapon = ev.weapon_detected === true ||
+        (summaryText.includes('[WEAPON DETECTED]') && !/\b(no weapon|unarmed|not a weapon|camera shot|wide shot)\b/i.test(summaryText));
+      const weaponBadge = hasStrictWeapon
         ? `<span class="badge badge--weapon" title="Weapon or firearm identified in footage"><span class="weapon-dot"></span> WEAPON DETECTED</span>`
         : '';
 
       return `
-        <article class="event-item event-item--${ev.category} ${isWeapon ? 'event-item--weapon' : ''}" data-id="${ev.id}" tabindex="0" role="listitem" aria-label="Incident ${ev.id}: ${meta.label}">
+        <article class="event-item event-item--${escapeHtml(ev.category)} ${hasStrictWeapon ? 'event-item--weapon' : ''}" data-id="${ev.id}" tabindex="0" role="listitem" aria-label="Incident ${ev.id}: ${meta.label}">
           <div class="event-thumb-wrapper">
-            <img class="event-thumb" src="${keyframeSrc}" alt="Keyframe for incident ${ev.id}" loading="lazy"
+            <img class="event-thumb" src="${escapeHtml(keyframeSrc)}" alt="Keyframe for incident ${ev.id}" loading="lazy"
               onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'104\\' height=\\'64\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%23080c14\\'/><text x=\\'50%\\' y=\\'50%\\' fill=\\'%23475569\\' font-size=\\'9\\' font-family=\\'monospace\\' text-anchor=\\'middle\\' dominant-baseline=\\'middle\\'>NO FRAME</text></svg>'">
           </div>
           <div class="event-body">
@@ -408,7 +485,7 @@
               <span class="badge ${meta.badgeClass}">${meta.label}</span>
               ${weaponBadge}
               <span class="event-time" title="${formatTimestamp(ev.timestamp)}">${formatTime(ev.timestamp)}${formatRelativeTime(ev.timestamp) ? ` · ${formatRelativeTime(ev.timestamp)}` : ''}</span>
-              <span class="event-camera">${ev.camera_id}</span>
+              <span class="event-camera">${escapeHtml(ev.camera_id)}</span>
             </div>
             <div class="event-summary">${escapeHtml(ev.summary)}</div>
             <div class="event-footer">
@@ -433,7 +510,12 @@
     });
 
     // Render Timeline & Distribution Bars
-    renderTimeline(filtered);
+    if (currentTimelineMode === 'multitrack') {
+      renderSwimlanes(filtered);
+    } else {
+      renderTimeline(filtered);
+    }
+    updateScrubberMarkers(currentEvents);
     renderBars('#bars-cat', filtered, e => e.category, c => CATEGORY_META[c]?.label || c, c => CATEGORY_META[c]?.color || 'var(--accent-cyan)');
     renderBars('#bars-cam', filtered, e => e.camera_id, id => id.toUpperCase(), () => 'var(--accent-cyan)');
   }
@@ -471,7 +553,7 @@
     let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Event timeline: ${events.length} events">`;
 
     [1.0, 0.5, 0.0].forEach(c => {
-      s += `<line x1="${L}" x2="${W - R}" y1="${y(c)}" y2="${y(c)}" stroke="#24334a" stroke-dasharray="${c > 0 ? '3 4' : ''}" stroke-width="1"/>
+      s += `<line x1="${L}" x2="${W - R}" y1="${y(c)}" y2="${y(c)}" stroke="rgba(255,255,255,.12)" stroke-dasharray="${c > 0 ? '3 4' : ''}" stroke-width="1"/>
             <text x="${L - 8}" y="${y(c) + 4}" text-anchor="end">${Math.round(c * 100)}%</text>`;
     });
 
@@ -484,7 +566,7 @@
     }
 
     if (!events.length) {
-      s += `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="#64748b">No incidents in this view range</text>`;
+      s += `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="rgba(255,255,255,.5)">No incidents in this view range</text>`;
     } else {
       events.forEach(e => {
         const c = typeof e.confidence === 'number' ? e.confidence : 0.5;
@@ -493,7 +575,7 @@
         const col = low ? '#f59e0b' : (CATEGORY_META[e.category]?.color || '#f43f5e');
         s += `<g class="mk" tabindex="0" role="button" data-id="${e.id}" aria-label="${e.category} at ${formatTime(e.timestamp)} on ${e.camera_id}">
           <line x1="${x(t)}" x2="${x(t)}" y1="${y(0)}" y2="${y(c)}" stroke="${col}" stroke-opacity="0.4" stroke-width="1.5"/>
-          <circle cx="${x(t)}" cy="${y(c)}" r="6" fill="${col}" stroke="#0c121e" stroke-width="2"/>
+          <circle cx="${x(t)}" cy="${y(c)}" r="6" fill="${col}" stroke="#000" stroke-width="2"/>
         </g>`;
       });
     }
@@ -570,6 +652,354 @@
           <span>${count}</span>
         </div>`;
     }).join('');
+  }
+
+  // ============ MULTI-TRACK SWIMLANES & TIMELINE MODES ============
+  function switchTimelineMode(mode) {
+    currentTimelineMode = mode;
+    if (mode === 'multitrack') {
+      if (els.tabTlCombined) els.tabTlCombined.classList.remove('active');
+      if (els.tabTlMultitrack) els.tabTlMultitrack.classList.add('active');
+      if (els.timeline) els.timeline.style.display = 'none';
+      if (els.timelineSwimlanes) {
+        els.timelineSwimlanes.style.display = 'flex';
+        renderSwimlanes(currentEvents);
+      }
+    } else {
+      if (els.tabTlCombined) els.tabTlCombined.classList.add('active');
+      if (els.tabTlMultitrack) els.tabTlMultitrack.classList.remove('active');
+      if (els.timelineSwimlanes) els.timelineSwimlanes.style.display = 'none';
+      if (els.timeline) {
+        els.timeline.style.display = 'block';
+        renderTimeline(currentEvents);
+      }
+    }
+  }
+
+  function renderSwimlanes(events) {
+    if (!els.timelineSwimlanes) return;
+    const cams = Object.keys(cameraConfigs);
+    if (!cams.length) cams.push('cam1', 'cam2');
+
+    const now = Date.now();
+    const timestamps = events.map(e => e.timestamp ? new Date(e.timestamp).getTime() : null).filter(t => t != null);
+    const minT = timestamps.length ? Math.min(...timestamps) : now - 86400000;
+    const maxT = Math.max(now, timestamps.length ? Math.max(...timestamps) : now);
+    const t0 = Math.min(minT, now - 3600000);
+    const t1 = maxT;
+    const range = (t1 - t0) || 1;
+
+    els.timelineSwimlanes.innerHTML = cams.map(camId => {
+      const camEvs = events.filter(e => e.camera_id === camId);
+      const dots = camEvs.map(e => {
+        const t = e.timestamp ? new Date(e.timestamp).getTime() : now;
+        const leftPct = Math.min(99, Math.max(1, ((t - t0) / range) * 100));
+        const col = CATEGORY_META[e.category]?.color || '#f43f5e';
+        return `
+          <div class="swimlane-event-dot" data-id="${e.id}" style="left:${leftPct.toFixed(1)}%; background:${col}; box-shadow:0 0 6px ${col};"
+               title="${escapeHtml(e.category)} (${formatTime(e.timestamp)}): ${escapeHtml(e.summary || '')}"></div>
+        `;
+      }).join('');
+
+      return `
+        <div class="swimlane-row">
+          <span class="swimlane-label" title="${escapeHtml(camId)}">${escapeHtml(camId.toUpperCase())}</span>
+          <div class="swimlane-track">
+            ${dots || '<span style="font-size:0.65rem; color:var(--text-muted); line-height:22px; padding-left:8px;">No incidents</span>'}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    els.timelineSwimlanes.querySelectorAll('.swimlane-event-dot').forEach(dot => {
+      dot.addEventListener('click', () => {
+        openModal(Number(dot.dataset.id));
+      });
+    });
+  }
+
+  // ============ NVR INTERACTIVE SCRUBBER ============
+  function updateScrubberMarkers(events) {
+    if (!els.nvrMarkers) return;
+    const camEvents = events.filter(e => e.camera_id === currentCamera);
+    if (!camEvents.length) {
+      els.nvrMarkers.innerHTML = '';
+      return;
+    }
+    const now = Date.now();
+    const timestamps = camEvents.map(e => e.timestamp ? new Date(e.timestamp).getTime() : now);
+    const minT = Math.min(...timestamps);
+    const maxT = Math.max(...timestamps, now);
+    const range = (maxT - minT) || 1;
+
+    els.nvrMarkers.innerHTML = camEvents.map(e => {
+      const t = e.timestamp ? new Date(e.timestamp).getTime() : now;
+      const leftPct = Math.min(100, Math.max(0, ((t - minT) / range) * 100));
+      const col = CATEGORY_META[e.category]?.color || '#f43f5e';
+      return `<div class="nvr-event-marker" style="left:${leftPct.toFixed(1)}%; background:${col};" title="${escapeHtml(e.category)}: ${escapeHtml(e.summary || '')}" data-id="${e.id}"></div>`;
+    }).join('');
+
+    els.nvrMarkers.querySelectorAll('.nvr-event-marker').forEach(marker => {
+      marker.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openModal(Number(marker.dataset.id));
+      });
+    });
+  }
+
+  async function seekCamera(ratio = null, frameIdx = null) {
+    try {
+      const body = {};
+      if (ratio !== null) body.ratio = Math.max(0, Math.min(1.0, ratio));
+      if (frameIdx !== null) body.frame_idx = Math.max(0, Math.floor(frameIdx));
+      await fetch(`/api/cameras/${encodeURIComponent(currentCamera)}/seek`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      fetchCameraTelemetry().catch(() => {});
+    } catch (err) {
+      console.warn('Seek error:', err);
+    }
+  }
+
+  async function togglePlayback() {
+    try {
+      const nextPaused = !currentCameraMetrics.is_paused;
+      await fetch(`/api/cameras/${encodeURIComponent(currentCamera)}/playback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paused: nextPaused })
+      });
+      currentCameraMetrics.is_paused = nextPaused;
+      if (els.nvrPlayIcon) els.nvrPlayIcon.textContent = nextPaused ? '▶' : '⏸';
+      fetchCameraTelemetry().catch(() => {});
+    } catch (err) {
+      console.warn('Playback toggle error:', err);
+    }
+  }
+
+  function initNvrScrubber() {
+    if (els.nvrSlider) {
+      els.nvrSlider.addEventListener('mousedown', () => { isUserDraggingScrubber = true; });
+      els.nvrSlider.addEventListener('touchstart', () => { isUserDraggingScrubber = true; }, { passive: true });
+      const onSeekRelease = () => {
+        if (!isUserDraggingScrubber) return;
+        isUserDraggingScrubber = false;
+        seekCamera(els.nvrSlider.value / 1000);
+      };
+      els.nvrSlider.addEventListener('mouseup', onSeekRelease);
+      els.nvrSlider.addEventListener('touchend', onSeekRelease);
+      els.nvrSlider.addEventListener('change', () => {
+        isUserDraggingScrubber = false;
+        seekCamera(els.nvrSlider.value / 1000);
+      });
+    }
+
+    if (els.nvrPlayPause) {
+      els.nvrPlayPause.addEventListener('click', togglePlayback);
+    }
+
+    if (els.nvrStepBack) {
+      els.nvrStepBack.addEventListener('click', () => {
+        const cur = currentCameraMetrics.frame_idx || 0;
+        seekCamera(null, Math.max(0, cur - 10));
+      });
+    }
+
+    if (els.nvrStepFwd) {
+      els.nvrStepFwd.addEventListener('click', () => {
+        const cur = currentCameraMetrics.frame_idx || 0;
+        seekCamera(null, cur + 10);
+      });
+    }
+
+    if (els.nvrLiveSnap) {
+      els.nvrLiveSnap.addEventListener('click', async () => {
+        if (currentCameraMetrics.is_paused) {
+          await togglePlayback();
+        }
+        await seekCamera(1.0);
+        showToast(`Jumped to live stream on ${currentCamera.toUpperCase()}`);
+      });
+    }
+  }
+
+  // ============ VIEWPORT MODES (SINGLE VS GRID) ============
+  function switchViewMode(mode) {
+    currentViewMode = mode;
+    if (mode === 'grid') {
+      if (els.btnViewSingle) els.btnViewSingle.classList.remove('active');
+      if (els.btnViewGrid) els.btnViewGrid.classList.add('active');
+      if (els.viewport) els.viewport.style.display = 'none';
+      if (els.viewportGrid) {
+        els.viewportGrid.style.display = 'grid';
+        renderGridView();
+      }
+    } else {
+      if (els.btnViewSingle) els.btnViewSingle.classList.add('active');
+      if (els.btnViewGrid) els.btnViewGrid.classList.remove('active');
+      if (els.viewportGrid) els.viewportGrid.style.display = 'none';
+      if (els.viewport) els.viewport.style.display = 'flex';
+      switchCamera(currentCamera);
+    }
+  }
+
+  function renderGridView() {
+    if (!els.viewportGrid) return;
+    const cams = Object.keys(cameraConfigs);
+    if (!cams.length) cams.push('cam1', 'cam2');
+
+    els.viewportGrid.className = `viewport-grid ${cams.length <= 4 ? 'grid-4' : ''}`;
+    els.viewportGrid.innerHTML = cams.map(camId => {
+      const info = cameraConfigs[camId] || {};
+      const title = info.name || camId.toUpperCase();
+      const isSelected = camId === currentCamera;
+      return `
+        <div class="grid-cam-card ${isSelected ? 'selected' : ''}" data-camera="${escapeHtml(camId)}" title="Click to focus on ${escapeHtml(title)}">
+          <div class="grid-cam-header">
+            <span class="grid-cam-title">${escapeHtml(title)}</span>
+            <span class="hud-pill hud-pill--rec" style="position:static; font-size:0.6rem;"><span class="rec-dot"></span>LIVE</span>
+          </div>
+          <img class="grid-cam-img" src="/stream/${encodeURIComponent(camId)}?t=${Date.now()}" alt="${escapeHtml(camId)} live feed" loading="eager"
+            onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'320\\' height=\\'180\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%23080c14\\'/><text x=\\'50%\\' y=\\'50%\\' fill=\\'%23475569\\' font-size=\\'12\\' font-family=\\'monospace\\' text-anchor=\\'middle\\' dominant-baseline=\\'middle\\'>STANDBY / NO SIGNAL</text></svg>'">
+        </div>
+      `;
+    }).join('');
+
+    els.viewportGrid.querySelectorAll('.grid-cam-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const targetCam = card.dataset.camera;
+        if (targetCam) {
+          currentCamera = targetCam;
+          if (els.cameraSelect) els.cameraSelect.value = targetCam;
+          switchViewMode('single');
+        }
+      });
+    });
+  }
+
+  // ============ DYNAMIC CAMERA MANAGEMENT ============
+  function switchCamera(camId) {
+    currentCamera = camId;
+    if (els.streamImg) els.streamImg.src = `/stream/${encodeURIComponent(camId)}?t=${Date.now()}`;
+    drawZones();
+    fetchEvents().catch(EL.report);
+    fetchCameraTelemetry().catch(EL.report);
+  }
+
+  async function loadCamerasConfig() {
+    try {
+      const res = await fetch('/api/cameras/config');
+      if (res.ok) {
+        const data = await res.json();
+        cameraConfigs = data.cameras || data;
+        updateCameraSelectDropdown();
+        if (currentViewMode === 'grid') {
+          renderGridView();
+        }
+        if (currentTimelineMode === 'multitrack') {
+          renderSwimlanes(currentEvents);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load cameras config:', err);
+    }
+  }
+
+  function updateCameraSelectDropdown() {
+    if (!els.cameraSelect) return;
+    const keys = Object.keys(cameraConfigs);
+    if (!keys.length) return;
+    els.cameraSelect.innerHTML = keys.map(k => {
+      const cam = cameraConfigs[k];
+      const label = cam.name ? `${k.toUpperCase()} — ${cam.name}` : `${k.toUpperCase()}`;
+      return `<option value="${escapeHtml(k)}" ${k === currentCamera ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+    }).join('');
+    if (!keys.includes(currentCamera)) {
+      currentCamera = keys[0];
+      els.cameraSelect.value = currentCamera;
+      switchCamera(currentCamera);
+    }
+  }
+
+  function initCameraManagement() {
+    if (els.btnAddCamera) {
+      els.btnAddCamera.addEventListener('click', () => {
+        if (els.cameraModal) els.cameraModal.showModal();
+      });
+    }
+    if (els.cameraModalClose) {
+      els.cameraModalClose.addEventListener('click', () => {
+        if (els.cameraModal) els.cameraModal.close();
+      });
+    }
+    if (els.cameraModalCancel) {
+      els.cameraModalCancel.addEventListener('click', () => {
+        if (els.cameraModal) els.cameraModal.close();
+      });
+    }
+    if (els.cameraForm) {
+      els.cameraForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const camId = $('#cam-input-id')?.value.trim();
+        const name = $('#cam-input-name')?.value.trim();
+        const source = $('#cam-input-source')?.value.trim();
+        const camType = $('#cam-input-type')?.value;
+
+        if (!camId || !source) return;
+
+        try {
+          const res = await fetch('/api/cameras', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              camera_id: camId,
+              name: name,
+              source: source,
+              camera_type: camType
+            })
+          });
+          const result = await res.json();
+          if (res.ok && result.ok) {
+            showToast(`Camera ${camId.toUpperCase()} connected successfully!`);
+            if (els.cameraModal) els.cameraModal.close();
+            els.cameraForm.reset();
+            await loadCamerasConfig();
+            currentCamera = camId;
+            if (els.cameraSelect) els.cameraSelect.value = camId;
+            switchCamera(camId);
+          } else {
+            showToast(result.detail || 'Failed to add camera', true);
+          }
+        } catch (err) {
+          showToast(`Error adding camera: ${err.message}`, true);
+        }
+      });
+    }
+
+    if (els.btnDelCamera) {
+      els.btnDelCamera.addEventListener('click', async () => {
+        const camToDelete = currentCamera;
+        if (!confirm(`Are you sure you want to remove camera "${camToDelete.toUpperCase()}" from active monitoring?`)) {
+          return;
+        }
+        try {
+          const res = await fetch(`/api/cameras/${encodeURIComponent(camToDelete)}`, {
+            method: 'DELETE'
+          });
+          const result = await res.json();
+          if (res.ok && result.ok) {
+            showToast(`Camera ${camToDelete.toUpperCase()} removed`);
+            await loadCamerasConfig();
+          } else {
+            showToast(result.detail || 'Failed to delete camera', true);
+          }
+        } catch (err) {
+          showToast(`Error deleting camera: ${err.message}`, true);
+        }
+      });
+    }
   }
 
   // ============ REPORT GENERATION MODULE ============
@@ -1024,10 +1454,11 @@
     const meta = CATEGORY_META[ev.category] || { label: ev.category, badgeClass: '' };
     const keyframeSrc = ev.keyframe_url || `/frames/${ev.id}.jpg`;
     const summaryText = ev.summary || '';
-    const isWeapon = /gun|firearm|handgun|pistol|rifle|knife|blade|weapon|brandish|shot|shooting/i.test(summaryText) || summaryText.includes('[WEAPON DETECTED]');
+    const hasStrictWeapon = ev.weapon_detected === true ||
+      (summaryText.includes('[WEAPON DETECTED]') && !/\b(no weapon|unarmed|not a weapon|camera shot|wide shot)\b/i.test(summaryText));
 
-    els.modalCategoryBadge.className = `badge ${meta.badgeClass} ${isWeapon ? 'badge--weapon' : ''}`;
-    els.modalCategoryBadge.textContent = isWeapon ? `[WEAPON] ${meta.label}` : meta.label;
+    els.modalCategoryBadge.className = `badge ${meta.badgeClass} ${hasStrictWeapon ? 'badge--weapon' : ''}`;
+    els.modalCategoryBadge.textContent = hasStrictWeapon ? `[WEAPON] ${meta.label}` : meta.label;
     els.modalTitle.textContent = `Incident Record #${ev.id}`;
     els.modalSummary.textContent = ev.summary;
     els.modalCamera.textContent = ev.camera_id;
@@ -1040,6 +1471,40 @@
       : '<span style="color:var(--text-dim)">None detected</span>';
 
     stopModalClipPlayer();
+
+    // Set up MP4 video clip player vs Keyframe photo toggle
+    if (els.modalVideoPlayer) {
+      els.modalVideoPlayer.pause();
+      els.modalVideoPlayer.src = `/api/clips/${ev.id}/video`;
+      els.modalVideoPlayer.style.display = 'none';
+      if (els.modalImage) els.modalImage.style.display = 'block';
+      if (els.modalBtnViewPhoto) els.modalBtnViewPhoto.classList.add('active');
+      if (els.modalBtnViewVideo) els.modalBtnViewVideo.classList.remove('active');
+
+      if (els.modalBtnViewPhoto) {
+        els.modalBtnViewPhoto.onclick = () => {
+          els.modalBtnViewPhoto.classList.add('active');
+          if (els.modalBtnViewVideo) els.modalBtnViewVideo.classList.remove('active');
+          if (els.modalImage) els.modalImage.style.display = 'block';
+          if (els.modalVideoPlayer) {
+            els.modalVideoPlayer.pause();
+            els.modalVideoPlayer.style.display = 'none';
+          }
+        };
+      }
+      if (els.modalBtnViewVideo) {
+        els.modalBtnViewVideo.onclick = () => {
+          if (els.modalBtnViewPhoto) els.modalBtnViewPhoto.classList.remove('active');
+          els.modalBtnViewVideo.classList.add('active');
+          if (els.modalImage) els.modalImage.style.display = 'none';
+          if (els.modalVideoPlayer) {
+            els.modalVideoPlayer.style.display = 'block';
+            els.modalVideoPlayer.play().catch(() => {});
+          }
+        };
+      }
+    }
+
     const keyframeItem = {
       src: keyframeSrc,
       label: 'Primary Keyframe (Trigger moment sent to Qwen3-VL:8B for visual analysis)',
@@ -1098,16 +1563,18 @@
 
   function closeModal() {
     stopModalClipPlayer();
+    if (els.modalVideoPlayer) {
+      els.modalVideoPlayer.pause();
+      els.modalVideoPlayer.src = '';
+    }
     els.modal.close();
     document.body.style.overflow = '';
   }
 
   // ============ API COMMUNICATIONS ============
-  async function fetchStats() {
+  async function fetchStats(signal) {
     try {
-      const res = await fetch('/api/stats', { cache: 'no-store' });
-      if (!res.ok) return;
-      const s = await res.json();
+      const s = await EL.getJson('/api/stats', { signal });
       els.statToday.textContent = s.events_today ?? '\u2014';
       els.statTotal.textContent = s.total_events ?? '\u2014';
       els.statLatency.textContent = s.avg_latency_ms ? `${s.avg_latency_ms} ms` : '\u2014 ms';
@@ -1124,15 +1591,13 @@
         els.filterCounts.all.textContent = total;
       }
     } catch (err) {
-      console.warn('[EventLens] Stats fetch failed:', err);
+      if (err.name !== 'AbortError') throw err;
     }
   }
 
-  async function fetchEvents() {
+  async function fetchEvents(signal) {
     try {
-      const res = await fetch('/api/events?limit=50', { cache: 'no-store' });
-      if (!res.ok) return;
-      const data = await res.json();
+      const data = await EL.getJson('/api/events?limit=50', { signal });
       const events = data.events || [];
 
       if (events.length) {
@@ -1144,10 +1609,14 @@
         lastEventId = Math.max(...events.map(e => e.id));
       }
 
+      // Re-render only when the payload actually changed: no flicker, no scroll/focus loss, no image refetch.
+      const sig = events.map(e => `${e.id}:${e.confidence}:${(e.summary || '').length}`).join('|');
+      if (sig === lastEventsSig) return;
+      lastEventsSig = sig;
       currentEvents = events;
       renderEvents();
     } catch (err) {
-      console.warn('[EventLens] Events fetch failed:', err);
+      if (err.name !== 'AbortError') throw err;
     }
   }
 
@@ -1189,7 +1658,7 @@
       }
     } catch (err) {
       console.error('[EventLens] Ingestion error:', err);
-      alert(`Source ingestion failed: ${err.message}`);
+      showToast(`Source ingestion failed: ${err.message}`, true);
       els.startSourceBtn.innerHTML = `
         <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
         Start Ingestion`;
@@ -1204,8 +1673,8 @@
       currentCamera = e.target.value;
       els.streamImg.src = `/stream/${currentCamera}?t=${Date.now()}`;
       drawZones();
-      fetchEvents();
-      fetchCameraTelemetry();
+      fetchEvents().catch(EL.report);
+      fetchCameraTelemetry().catch(EL.report);
     });
 
     // Quick Live Webcam button
@@ -1368,6 +1837,24 @@
     // Initialize Timeline Interactions & Report Module
     initTimelineInteractions();
     initReportModule();
+    initNvrScrubber();
+    initCameraManagement();
+
+    // View mode toggles (Single 1x1 vs Grid Matrix)
+    if (els.btnViewSingle) {
+      els.btnViewSingle.addEventListener('click', () => switchViewMode('single'));
+    }
+    if (els.btnViewGrid) {
+      els.btnViewGrid.addEventListener('click', () => switchViewMode('grid'));
+    }
+
+    // Timeline mode toggles (Combined vs Multi-Track)
+    if (els.tabTlCombined) {
+      els.tabTlCombined.addEventListener('click', () => switchTimelineMode('combined'));
+    }
+    if (els.tabTlMultitrack) {
+      els.tabTlMultitrack.addEventListener('click', () => switchTimelineMode('multitrack'));
+    }
 
     // Clear incidents feed
     if (els.clearEventsBtn) {
@@ -1378,7 +1865,7 @@
           if (res.ok) {
             currentEvents = [];
             renderEvents();
-            fetchStats();
+            fetchStats().catch(EL.report);
             showToast('All recorded incidents cleared');
           }
         } catch (err) {
@@ -1389,12 +1876,22 @@
     }
 
     // Stream error recovery
+    let streamRetries = 0, streamTimer = 0;
     els.streamImg.addEventListener('error', () => {
       els.viewport.classList.add('offline');
+      clearTimeout(streamTimer);
+      const delay = Math.min(1000 * 2 ** streamRetries++, 15000);
+      streamTimer = setTimeout(() => {
+        els.streamImg.src = `/stream/${encodeURIComponent(currentCamera)}?t=${Date.now()}`;
+      }, delay);
     });
     els.streamImg.addEventListener('load', () => {
+      streamRetries = 0;
+      clearTimeout(streamTimer);
       els.viewport.classList.remove('offline');
     });
+    // The <img> may have failed before this script ran, so its 'error' event is already gone: check state now.
+    if (els.streamImg.complete && els.streamImg.naturalWidth === 0) els.streamImg.dispatchEvent(new Event('error'));
 
     // Global Tactical Keyboard Shortcuts
     document.addEventListener('keydown', e => {
@@ -1404,14 +1901,18 @@
           e.target.blur();
           if (els.modal.open) closeModal();
           if (els.reportModal && els.reportModal.open) els.reportModal.close();
+          if (els.cameraModal && els.cameraModal.open) els.cameraModal.close();
         }
         return;
       }
 
+      if (e.ctrlKey || e.metaKey || e.altKey) return; // Ctrl+F must find, not fullscreen
+
       if (e.key === 'Escape') {
         if (els.modal.open) closeModal();
         if (els.reportModal && els.reportModal.open) els.reportModal.close();
-      } else if (e.key === '/' || e.key === '?') {
+        if (els.cameraModal && els.cameraModal.open) els.cameraModal.close();
+      } else if (e.key === '/') {
         e.preventDefault();
         els.eventSearch.focus();
       } else if (e.key === 'z' || e.key === 'Z') {
@@ -1426,6 +1927,15 @@
         els.cameraSelect.dispatchEvent(new Event('change'));
       } else if (e.key === 'f' || e.key === 'F') {
         els.fullscreenBtn.click();
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        togglePlayback();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (els.nvrStepBack) els.nvrStepBack.click();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (els.nvrStepFwd) els.nvrStepFwd.click();
       }
     });
 
@@ -1433,28 +1943,25 @@
   }
 
   // ============ POLLING LOOP ============
+  let pollers = [];
   function startPolling() {
-    fetchStats();
-    fetchEvents();
-    fetchCameraTelemetry();
-    pollTimer = setInterval(() => {
-      fetchStats();
-      fetchEvents();
-    }, 2000);
-    clockTimer = setInterval(() => {
-      updateClock();
-      fetchCameraTelemetry();
-    }, 1000);
+    pollers = [
+      EL.createPoller({ name: 'stats', interval: 2000, task: fetchStats }),
+      EL.createPoller({ name: 'events', interval: 2000, task: fetchEvents }),
+      EL.createPoller({ name: 'camera', interval: 1000, task: fetchCameraTelemetry }),
+    ];
+    clockTimer = setInterval(updateClock, 1000);
   }
 
   function stopPolling() {
-    clearInterval(pollTimer);
+    pollers.forEach(p => p.stop());
     clearInterval(clockTimer);
   }
 
   // ============ INITIALIZE ============
   document.addEventListener('DOMContentLoaded', () => {
     initHandlers();
+    loadCamerasConfig();
     updateClock();
     drawZones();
     startPolling();
