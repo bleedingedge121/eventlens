@@ -27,6 +27,7 @@ VALID_CATEGORIES = {
     "tailgating",
     "crowd_incident",
     "suspicious_activity",
+    "suicide_risk",
     "none",
 }
 
@@ -34,8 +35,9 @@ TEMPLATE_SUMMARIES = {
     "tailgating": "Potential tailgating detected: multiple individuals entered consecutively without secondary credential swipe.",
     "person_down": "Person down alert: individual detected remaining prone on ground for extended duration.",
     "crowd_incident": "Crowd gathering alert: person count exceeded regional density safety threshold.",
-    "suspicious_activity": "Suspicious activity alert: unauthorized presence, loitering, or weapon brandishing in surveillance zone.",
+    "suspicious_activity": "Suspicious activity alert: unauthorized presence or loitering detected in surveillance zone.",
     "fighting": "Physical altercation / violent struggle detected: overlapping tracks with rapid kinetic movement.",
+    "suicide_risk": "Critical hazard alert: individual detected in high-risk zone (ledge, railing, or dangerous height).",
 }
 
 
@@ -144,13 +146,20 @@ class VLMClient:
                 f"You are a surveillance security AI analyzing CCTV camera {camera_id}.\n"
                 f"The motion tracker flagged potential '{category_hint}'.\n"
                 "Examine the image carefully. Identify what is happening.\n"
-                "Respond ONLY with a JSON object in this format:\n"
-                '{"category": "person_down"|"fighting"|"suspicious_activity"|"tailgating"|"crowd_incident"|"none", '
+                "Respond ONLY with a JSON object in this exact format:\n"
+                '{"category": "person_down"|"fighting"|"suspicious_activity"|"tailgating"|"crowd_incident"|"suicide_risk"|"none", '
                 '"confidence": 0.85, '
-                '"summary": "2 factual sentences describing what you observe in the scene."}\n'
-                "Categories: person_down (collapsed/prone), fighting (altercation/violence), "
-                "suspicious_activity (weapon/loitering/trespass), tailgating (unauthorized entry), crowd_incident (overcrowded), "
-                "none (normal routine activity). If a weapon is visible, include '[WEAPON DETECTED]' in summary.\n"
+                '"summary": "2 factual sentences describing what you observe in the scene.", '
+                '"weapon_detected": false}\n'
+                "Categories:\n"
+                "- person_down: collapsed/lying prone on ground (NOT sitting normally)\n"
+                "- fighting: physical altercation, violent struggle, punches, or brawl\n"
+                "- suspicious_activity: unauthorized loitering or prowling\n"
+                "- tailgating: two people entering consecutively through turnstile/door on one badge\n"
+                "- crowd_incident: dangerously dense crowd or panic surge\n"
+                "- suicide_risk: climbing over railing/balcony/ledge or hanging at height\n"
+                "- none: normal, calm, routine activity\n"
+                "IMPORTANT: Set weapon_detected to true ONLY if a gun, rifle, or knife is clearly visible in hands. Otherwise set false.\n"
                 "Output JSON now:"
             )
 
@@ -168,6 +177,7 @@ class VLMClient:
                         "category": cat,
                         "confidence": max(0.0, min(1.0, conf)),
                         "summary": summary,
+                        "weapon_detected": parsed.get("weapon_detected", False),
                     }
                 else:
                     logger.warning(f"[VLM] Model returned unparseable response: {raw_response[:200]}")
@@ -198,14 +208,16 @@ class VLMClient:
 
     def _call_ollama(self, prompt: str, images_b64: List[str], model: str = None) -> str:
         url = f"{self.ollama_host}/api/generate"
+        cfg = _load_vlm_settings()
+        num_predict = int(cfg.get("num_predict", 120))
         payload = {
             "model": model or self.model_name,
             "prompt": prompt,
-            "images": images_b64[:1],  # Send 1 high-quality resized keyframe for fast, deterministic inference
+            "images": images_b64[:1],  # Send 1 keyframe for fast, deterministic inference
             "stream": False,
             "options": {
                 "temperature": 0.1,
-                "num_predict": 700,  # Allow sufficient tokens for reasoning completion + JSON output
+                "num_predict": num_predict,  # Focused token budget for ultra-low latency
             },
         }
 
@@ -252,7 +264,7 @@ class VLMClient:
                     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                     if img is not None:
                         h, w = img.shape[:2]
-                        max_dim = 480
+                        max_dim = 416
                         if max(h, w) > max_dim:
                             scale = max_dim / float(max(h, w))
                             img = cv2.resize(
@@ -260,7 +272,7 @@ class VLMClient:
                                 (int(w * scale), int(h * scale)),
                                 interpolation=cv2.INTER_AREA,
                             )
-                        _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                        _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 75])
                         b64_list.append(base64.b64encode(buf.tobytes()).decode("utf-8"))
                     else:
                         b64_list.append(base64.b64encode(raw_bytes).decode("utf-8"))
@@ -295,6 +307,8 @@ class VLMClient:
             if cat not in VALID_CATEGORIES or not cat:
                 if any(w in text_corpus for w in ["person down", "lying down", "on the ground", "collapsed", "fallen", "prone", "shot down", "casualty", "injured"]):
                     cat = "person_down"
+                elif any(w in text_corpus for w in ["suicide", "jump from", "balcony ledge", "railing climb", "hanging"]):
+                    cat = "suicide_risk"
                 elif any(w in text_corpus for w in ["fight", "brawl", "punch", "kicking", "assault", "struggle", "combat", "altercation", "wrestling"]):
                     cat = "fighting"
                 elif any(w in text_corpus for w in ["gunfight", "shooting", "gun", "firearm", "handgun", "pistol", "rifle", "weapon", "knife", "blade", "armed", "loiter"]):
@@ -328,11 +342,22 @@ class VLMClient:
             if not summary or len(summary) < 8:
                 summary = TEMPLATE_SUMMARIES.get(cat, "Activity classified by VLM.")
 
-            # Tag weapon if positively detected in context (not negated)
-            has_weapon = (
-                any(w in text_corpus for w in ["gun", "gunfight", "firearm", "pistol", "rifle", "knife", "blade", "armed"])
-                and not any(neg in text_corpus for neg in ["no weapon", "no visible weapon", "no firearms", "without weapon", "no gun", "not visible"])
-            )
+            # Strict weapon extraction: ONLY when explicitly true and not negated
+            weapon_val = d.get("weapon_detected")
+            has_weapon = False
+            if isinstance(weapon_val, bool):
+                has_weapon = weapon_val
+            elif isinstance(weapon_val, str):
+                has_weapon = weapon_val.lower().strip() in ["true", "1", "yes"]
+
+            summary_lower = summary.lower()
+            if any(neg in summary_lower for neg in [
+                "no weapon", "no visible weapon", "no firearms", "without weapon",
+                "without a weapon", "no gun", "not visible", "unarmed", "camera shot",
+                "wide shot", "long shot", "close-up shot"
+            ]):
+                has_weapon = False
+
             if has_weapon and "[WEAPON DETECTED]" not in summary:
                 summary = f"[WEAPON DETECTED] {summary}"
 
@@ -340,6 +365,7 @@ class VLMClient:
                 "category": cat,
                 "confidence": max(0.0, min(1.0, conf)),
                 "summary": summary,
+                "weapon_detected": has_weapon,
             }
 
         # 1. Try direct parse
@@ -394,11 +420,15 @@ class VLMClient:
             confidence = float(conf_m.group(1)) if conf_m else 0.85
             sum_m = re.search(r'"summary"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)', text)
             summary = sum_m.group(1).strip() if sum_m else ""
+            weapon_m = re.search(r'"weapon_detected"\s*:\s*(true|false)', text, re.IGNORECASE)
+            has_weapon = weapon_m.group(1).lower() == "true" if weapon_m else False
+
             if category in VALID_CATEGORIES:
                 return {
                     "category": category,
                     "confidence": max(0.0, min(1.0, confidence)),
                     "summary": summary,
+                    "weapon_detected": has_weapon,
                 }
 
         return None

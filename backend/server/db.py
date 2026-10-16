@@ -26,6 +26,7 @@ VALID_CATEGORIES = {
     "tailgating",
     "crowd_incident",
     "suspicious_activity",
+    "suicide_risk",
 }
 
 
@@ -205,8 +206,8 @@ class Database:
 
     def run_readonly_query(self, sql: str) -> List[Dict[str, Any]]:
         """Executes a sanitized read-only SELECT query for conversational querying."""
-        # Open in read-only mode using SQLite URI
-        uri = f"file:{self.db_path.resolve()}?mode=ro"
+        # Open in read-only mode using SQLite URI (cross-platform safe for Windows & POSIX)
+        uri = f"{self.db_path.resolve().as_uri()}?mode=ro"
         conn = sqlite3.connect(uri, uri=True, timeout=5.0)
         conn.row_factory = sqlite3.Row
         try:
