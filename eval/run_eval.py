@@ -101,9 +101,37 @@ def run_benchmark():
     print(f"95th Percentile (p95):{latency_summary['p95_latency_ms']} ms")
     print(f"Mean Latency:         {latency_summary['mean_latency_ms']} ms")
 
+    # Load Real Dataset Benchmark stats if available
+    benchmark_file = RESULTS_DIR / "dataset_benchmark.json"
+    vision_metrics = {}
+    if benchmark_file.exists():
+        try:
+            with open(benchmark_file, "r", encoding="utf-8") as f:
+                bdata = json.load(f)
+            fps_vals = [item["inference_fps"] for item in bdata if "inference_fps" in item]
+            total_frames = sum(item.get("processed_frames", 0) for item in bdata)
+            speedups = [item["speedup_vs_realtime"] for item in bdata if "speedup_vs_realtime" in item]
+            vision_metrics = {
+                "clips_evaluated": len(bdata),
+                "total_frames_processed": total_frames,
+                "avg_inference_fps": round(float(np.mean(fps_vals)), 1) if fps_vals else 0.0,
+                "median_speedup_vs_realtime": round(float(np.median(speedups)), 2) if speedups else 0.0,
+            }
+            print("\n--- Edge Vision Pipeline Performance (Real Video Execution) ---")
+            print(f"Clips Evaluated:        {vision_metrics['clips_evaluated']}")
+            print(f"Total Frames Processed: {vision_metrics['total_frames_processed']}")
+            print(f"YOLO + ByteTrack Speed: {vision_metrics['avg_inference_fps']} FPS")
+            print(f"Realtime Speedup:       {vision_metrics['median_speedup_vs_realtime']}x")
+        except Exception as e:
+            print(f"Warning: Could not parse dataset_benchmark.json: {e}")
+
     out_file = RESULTS_DIR / "eval_report.json"
     with open(out_file, "w", encoding="utf-8") as f:
-        json.dump({"classification": report, "latency": latency_summary}, f, indent=2)
+        json.dump({
+            "classification": report,
+            "latency": latency_summary,
+            "vision_pipeline": vision_metrics
+        }, f, indent=2)
 
     print(f"\nReport saved to: {out_file}")
 

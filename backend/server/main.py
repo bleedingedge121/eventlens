@@ -12,6 +12,7 @@ Implements all frozen endpoints from AGENTS.md Section 8:
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import logging
 from pathlib import Path
@@ -38,6 +39,7 @@ from backend.vision.pipeline import (
     get_latest_jpeg,
     start_camera,
     stop_camera,
+    stop_all_cameras,
     get_camera_status,
     list_active_cameras,
     seek_camera,
@@ -49,10 +51,25 @@ DATA_DIR = BASE_DIR / "data"
 FRAMES_DIR = DATA_DIR / "frames"
 FRAMES_DIR.mkdir(parents=True, exist_ok=True)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Auto-initialize default camera stream with normal routine passage
+    cam1_video = DATA_DIR / "videos" / "test_normal.mp4"
+    if not cam1_video.exists():
+        cam1_video = DATA_DIR / "videos" / "test_tailgating.mp4"
+    if cam1_video.exists():
+        start_camera("cam1", str(cam1_video), on_candidate=on_candidate_event)
+        logger.info(f"[Server] Auto-initialized cam1 with {cam1_video.name}")
+    yield
+    stop_all_cameras()
+
+
 app = FastAPI(
     title="EventLens Server",
     description="Open-Source AI Video Surveillance Event Summarization & Querying",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Enable CORS for local development
@@ -192,18 +209,6 @@ def on_candidate_event(candidate: dict):
                     logger.warning(f"[Server] MP4 clip generation error: {e}")
 
             logger.info(f"[Server] Saved {len(clip_frames)} clip frames to {clip_dir}")
-
-
-@app.on_event("startup")
-def startup_event():
-    """Auto-initializes default camera stream with normal routine passage."""
-    cam1_video = DATA_DIR / "videos" / "test_normal.mp4"
-    if not cam1_video.exists():
-        cam1_video = DATA_DIR / "videos" / "test_tailgating.mp4"
-    if cam1_video.exists():
-        start_camera("cam1", str(cam1_video), on_candidate=on_candidate_event)
-        logger.info(f"[Server] Auto-initialized cam1 with {cam1_video.name}")
-    # cam2 remains on standby until activated by user
 
 
 @app.get("/api/health")
@@ -434,10 +439,13 @@ def get_dataset_videos():
 
 
 @app.get("/stream/{camera_id}")
-async def video_stream(camera_id: str, request: Request):
+async def video_stream(camera_id: str, request: Request, max_frames: Optional[int] = None):
     """Streams live MJPEG frames for the given camera with zero-latency buffer and clean disconnect."""
     async def frame_generator():
+        count = 0
         while True:
+            if max_frames is not None and count >= max_frames:
+                break
             if await request.is_disconnected():
                 break
             frame_bytes = get_latest_jpeg(camera_id)
@@ -445,6 +453,7 @@ async def video_stream(camera_id: str, request: Request):
                 b"--frame\r\n"
                 b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
             )
+            count += 1
             await asyncio.sleep(0.033)  # ~30 FPS smooth real-time playback
 
     return StreamingResponse(

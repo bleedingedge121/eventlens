@@ -30,5 +30,11 @@
     "median_latency_ms": 338.7,
     "p95_latency_ms": 419.9,
     "mean_latency_ms": 345.6
+  },
+  "vision_pipeline": {
+    "clips_evaluated": 4,
+    "total_frames_processed": 900,
+    "avg_inference_fps": 93.4,
+    "median_speedup_vs_realtime": 3.15
   }
 }

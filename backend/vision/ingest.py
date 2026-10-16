@@ -17,6 +17,12 @@ from typing import Generator, Optional, Tuple, Union
 import cv2
 import numpy as np
 
+# Silence OpenCV DirectShow C++ backend warnings
+try:
+    cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+except Exception:
+    pass
+
 logger = logging.getLogger("eventlens.ingest")
 
 

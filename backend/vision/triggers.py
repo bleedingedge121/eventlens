@@ -337,7 +337,22 @@ class TriggerEngine:
                         if dt1 > 0 and dt2 > 0:
                             s1 = (((p1_now[2] - p1_prev[2]) ** 2 + (p1_now[3] - p1_prev[3]) ** 2) ** 0.5) / dt1
                             s2 = (((p2_now[2] - p2_prev[2]) ** 2 + (p2_now[3] - p2_prev[3]) ** 2) ** 0.5) / dt2
-                            if (s1 + s2) / 2.0 >= speed_thresh:
+                            avg_speed = (s1 + s2) / 2.0
+
+                            # Kinetic oscillation / erratic grappling motion:
+                            # Physical altercations exhibit sudden velocity reversals, whereas walking has smooth flow
+                            is_erratic = False
+                            if len(t1.positions) >= 3 and len(t2.positions) >= 3:
+                                p1_old = t1.positions[-3]
+                                vx1 = p1_now[2] - p1_prev[2]
+                                vy1 = p1_now[3] - p1_prev[3]
+                                vx1_old = p1_prev[2] - p1_old[2]
+                                vy1_old = p1_prev[3] - p1_old[3]
+                                dot1 = vx1 * vx1_old + vy1 * vy1_old
+                                if dot1 < 0:
+                                    is_erratic = True
+
+                            if (avg_speed >= speed_thresh) or (avg_speed >= speed_thresh * 0.70 and is_erratic):
                                 if self._can_trigger("fighting", current_time, cooldown=12.0):
                                     candidates.append({
                                         "camera_id": self.camera_id,

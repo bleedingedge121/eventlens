@@ -57,5 +57,13 @@ class TestCameraAPI(unittest.TestCase):
         self.assertIn("devices", data)
         self.assertIsInstance(data["devices"], list)
 
+    def test_mjpeg_stream_endpoint(self):
+        res = self.client.get("/stream/cam1?max_frames=1")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("multipart/x-mixed-replace", res.headers.get("content-type", ""))
+        self.assertTrue(len(res.content) > 0)
+        self.assertIn(b"--frame", res.content)
+
+
 if __name__ == "__main__":
     unittest.main()

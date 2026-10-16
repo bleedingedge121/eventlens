@@ -962,16 +962,26 @@
 
   function initNvrScrubber() {
     if (els.nvrSlider) {
+      let seekDebounceTimer = null;
       els.nvrSlider.addEventListener('mousedown', () => { isUserDraggingScrubber = true; });
       els.nvrSlider.addEventListener('touchstart', () => { isUserDraggingScrubber = true; }, { passive: true });
+      els.nvrSlider.addEventListener('input', () => {
+        isUserDraggingScrubber = true;
+        if (seekDebounceTimer) clearTimeout(seekDebounceTimer);
+        seekDebounceTimer = setTimeout(() => {
+          seekCamera(els.nvrSlider.value / 1000);
+        }, 60);
+      });
       const onSeekRelease = () => {
         if (!isUserDraggingScrubber) return;
+        if (seekDebounceTimer) clearTimeout(seekDebounceTimer);
         isUserDraggingScrubber = false;
         seekCamera(els.nvrSlider.value / 1000);
       };
       els.nvrSlider.addEventListener('mouseup', onSeekRelease);
       els.nvrSlider.addEventListener('touchend', onSeekRelease);
       els.nvrSlider.addEventListener('change', () => {
+        if (seekDebounceTimer) clearTimeout(seekDebounceTimer);
         isUserDraggingScrubber = false;
         seekCamera(els.nvrSlider.value / 1000);
       });
@@ -2141,13 +2151,29 @@
         els.fullscreenBtn.click();
       } else if (e.key === ' ') {
         e.preventDefault();
-        togglePlayback();
+        if (els.modal && els.modal.open) {
+          if (els.btnClipPlay) els.btnClipPlay.click();
+          else if (els.modalVideoPlayer && els.modalVideoPlayer.style.display !== 'none') {
+            if (els.modalVideoPlayer.paused) els.modalVideoPlayer.play();
+            else els.modalVideoPlayer.pause();
+          }
+        } else {
+          togglePlayback();
+        }
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        if (els.nvrStepBack) els.nvrStepBack.click();
+        if (els.modal && els.modal.open) {
+          if (els.btnClipPrev) els.btnClipPrev.click();
+        } else {
+          if (els.nvrStepBack) els.nvrStepBack.click();
+        }
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
-        if (els.nvrStepFwd) els.nvrStepFwd.click();
+        if (els.modal && els.modal.open) {
+          if (els.btnClipNext) els.btnClipNext.click();
+        } else {
+          if (els.nvrStepFwd) els.nvrStepFwd.click();
+        }
       }
     });
 

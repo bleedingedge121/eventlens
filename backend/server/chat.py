@@ -85,6 +85,11 @@ class ChatEngine:
 
         # Normalize PostgreSQL ILIKE to SQLite LIKE
         cleaned = re.sub(r"\bILIKE\b", "LIKE", cleaned, flags=re.IGNORECASE)
+        # Normalize non-SQLite date functions
+        now_iso = datetime.now().isoformat(timespec="seconds")
+        today_date = datetime.now().strftime("%Y-%m-%d")
+        cleaned = re.sub(r"\bNOW\(\)", f"'{now_iso}'", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\bCURRENT_DATE\b", f"'{today_date}'", cleaned, flags=re.IGNORECASE)
         cleaned_lower = cleaned.lower()
 
         # Reject any semicolon in the body

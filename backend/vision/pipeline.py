@@ -12,6 +12,7 @@ from collections import deque
 import json
 import logging
 from pathlib import Path
+import queue
 import threading
 import time
 from typing import Callable, Dict, List, Optional
@@ -36,6 +37,48 @@ _LATEST_FRAMES: Dict[str, bytes] = {}
 _CAMERA_METRICS: Dict[str, dict] = {}
 _VLM_ACTIVITY: Dict[str, dict] = {}
 _LOCK = threading.Lock()
+
+# Bounded VLM Dispatcher FIFO Queue (eliminates thread stampedes & lock starvation)
+_VLM_QUEUE: queue.Queue = queue.Queue(maxsize=16)
+_VLM_WORKER_THREAD: Optional[threading.Thread] = None
+_VLM_WORKER_STOP = threading.Event()
+
+
+def _vlm_dispatcher_worker():
+    """Dedicated background thread that processes candidate events sequentially via FIFO queue.
+    Eliminates thread stampedes and Ollama inference lock starvation.
+    """
+    logger.info("[Pipeline] Dedicated VLM FIFO worker thread started.")
+    while not _VLM_WORKER_STOP.is_set():
+        try:
+            item = _VLM_QUEUE.get(timeout=0.5)
+            if item is None:
+                _VLM_QUEUE.task_done()
+                break
+            cand, callback = item
+            try:
+                callback(cand)
+            except Exception as ex:
+                logger.error(f"[Pipeline] Error in candidate callback: {ex}")
+            finally:
+                _VLM_QUEUE.task_done()
+        except queue.Empty:
+            continue
+        except Exception as e:
+            logger.error(f"[Pipeline] Unexpected error in VLM worker loop: {e}")
+
+
+def _ensure_vlm_worker():
+    global _VLM_WORKER_THREAD
+    with _LOCK:
+        if _VLM_WORKER_THREAD is None or not _VLM_WORKER_THREAD.is_alive():
+            _VLM_WORKER_STOP.clear()
+            _VLM_WORKER_THREAD = threading.Thread(
+                target=_vlm_dispatcher_worker,
+                daemon=True,
+                name="VLM-FIFO-Dispatcher",
+            )
+            _VLM_WORKER_THREAD.start()
 
 
 def set_vlm_activity(camera_id: str, is_busy: bool, hint: str = ""):
@@ -197,16 +240,14 @@ def _camera_worker_loop(
                 cand["frames"] = recent_frames_bytes
                 cand["keyframe_bytes"] = jpeg_buf.tobytes() if ret else None
 
-                # Dispatch candidate event to background worker (runs VLM + SQLite insertion)
+                # Dispatch candidate event to background FIFO queue (eliminates thread stampedes & lock starvation)
                 try:
-                    threading.Thread(
-                        target=on_candidate,
-                        args=(cand,),
-                        daemon=True,
-                        name=f"VLM-Dispatcher-{cand.get('category_hint')}",
-                    ).start()
+                    _ensure_vlm_worker()
+                    _VLM_QUEUE.put_nowait((cand, on_candidate))
+                except queue.Full:
+                    logger.warning(f"[Pipeline] VLM queue full (max 16) — dropping candidate {cand.get('category_hint')} to protect latency")
                 except Exception as e:
-                    logger.error(f"[Pipeline] Error dispatching candidate event: {e}")
+                    logger.error(f"[Pipeline] Error dispatching candidate event to VLM queue: {e}")
 
     except Exception as e:
         logger.error(f"[Pipeline] Camera worker loop encountered error on {camera_id}: {e}")
@@ -259,6 +300,14 @@ def stop_camera(camera_id: str) -> bool:
             _INGEST_ENGINES[camera_id].stop()
         logger.info(f"[Pipeline] Stopped camera {camera_id}")
         return True
+
+
+def stop_all_cameras():
+    """Stops all running camera vision pipelines cleanly."""
+    with _LOCK:
+        cams = list(_STOP_EVENTS.keys())
+    for cid in cams:
+        stop_camera(cid)
 
 
 def get_latest_jpeg(camera_id: str) -> bytes:
