@@ -91,6 +91,6 @@ ollama serve
 ```
 3. Pull the target models:
 ```bash
-ollama pull qwen2.5-vl:7b      # Vision-Language Model for event summaries
+ollama pull qwen3-vl:8b       # Primary Vision-Language Model for event summaries (or qwen2.5-vl:7b)
 ollama pull Hermes-4-14B:latest # Chat model for SafeSQL natural language queries
 ```
