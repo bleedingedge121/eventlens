@@ -17,7 +17,9 @@
     fighting: { label: 'Fighting', badgeClass: 'badge--fighting' },
     crowd_incident: { label: 'Crowd', badgeClass: 'badge--crowd_incident' },
     suspicious_activity: { label: 'Suspicious', badgeClass: 'badge--suspicious_activity' },
-    suicide_risk: { label: 'Suicide / Fall Hazard', badgeClass: 'badge--suicide_risk' }
+    suicide_risk: { label: 'Suicide / Fall Hazard', badgeClass: 'badge--suicide_risk' },
+    weapons: { label: 'Weapon Incident', badgeClass: 'badge--weapon' },
+    dangerous_terrain: { label: 'Terrain Hazard', badgeClass: 'badge--warning' }
   };
 
   // ============ DOM REFERENCES ============
@@ -130,6 +132,37 @@
       ? event.track_ids.map(id => `<span class="track-chip">Target #${id}</span>`).join(' ')
       : '<span style="color:var(--text-dim)">None detected</span>';
 
+    const modalTagsRow = $('#modal-tags-row');
+    const modalTags = $('#modal-tags');
+    if (modalTagsRow && modalTags) {
+      let mTags = [];
+      if (Array.isArray(event.tags)) mTags = event.tags;
+      else if (typeof event.tags === 'string' && event.tags.startsWith('[')) {
+        try { mTags = JSON.parse(event.tags); } catch { mTags = []; }
+      }
+      if (mTags.length) {
+        modalTagsRow.style.display = 'flex';
+        modalTags.innerHTML = mTags.map(t => {
+          let chipClass = 'tag-chip';
+          let icon = '🏷️';
+          const tl = t.toLowerCase();
+          if (tl.includes('weapon') || tl.includes('firearm') || tl.includes('bladed') || tl.includes('blunt')) {
+            chipClass += ' tag-chip--weapon';
+            icon = '🔫';
+          } else if (tl.includes('hazard') || tl.includes('terrain') || tl.includes('slip') || tl.includes('fall') || tl.includes('electrical')) {
+            chipClass += ' tag-chip--hazard';
+            icon = '⚠️';
+          } else if (tl.includes('tailgating') || tl.includes('passback')) {
+            chipClass += ' tag-chip--tailgating';
+            icon = '🚶‍♂️🚶‍♂️';
+          }
+          return `<span class="${chipClass}">${icon} ${escapeHtml(t.replace(/_/g, ' '))}</span>`;
+        }).join(' ');
+      } else {
+        modalTagsRow.style.display = 'none';
+      }
+    }
+
     els.copyEventBtn.onclick = () => copyToClipboard(JSON.stringify(event, null, 2), els.copyEventBtn, 'Copy JSON');
 
     els.modal.showModal();
@@ -183,6 +216,29 @@
       const cardsHtml = events.map(ev => {
         const meta = CATEGORY_META[ev.category] || { label: ev.category, badgeClass: '' };
         const keyframeSrc = ev.keyframe_url || `/frames/${ev.id}.jpg`;
+
+        let parsedTags = [];
+        if (Array.isArray(ev.tags)) parsedTags = ev.tags;
+        else if (typeof ev.tags === 'string' && ev.tags.startsWith('[')) {
+          try { parsedTags = JSON.parse(ev.tags); } catch { parsedTags = []; }
+        }
+        const tagChipsHtml = parsedTags.map(t => {
+          let chipClass = 'tag-chip';
+          let icon = '🏷️';
+          const tl = t.toLowerCase();
+          if (tl.includes('weapon') || tl.includes('firearm') || tl.includes('bladed') || tl.includes('blunt')) {
+            chipClass += ' tag-chip--weapon';
+            icon = '🔫';
+          } else if (tl.includes('hazard') || tl.includes('terrain') || tl.includes('slip') || tl.includes('fall') || tl.includes('electrical')) {
+            chipClass += ' tag-chip--hazard';
+            icon = '⚠️';
+          } else if (tl.includes('tailgating') || tl.includes('passback')) {
+            chipClass += ' tag-chip--tailgating';
+            icon = '🚶‍♂️🚶‍♂️';
+          }
+          return `<span class="${chipClass}">${icon} ${escapeHtml(t.replace(/_/g, ' '))}</span>`;
+        }).join(' ');
+
         return `
           <div class="chat-event-tile" data-event-id="${ev.id}" tabindex="0" role="button" aria-label="View incident ${ev.id}">
             <img class="chat-event-thumb" src="${escapeHtml(keyframeSrc)}" alt="Event keyframe ${ev.id}" loading="lazy"
@@ -194,6 +250,7 @@
                 <span class="event-time">${formatTime(ev.timestamp)}</span>
               </div>
               <div class="chat-event-summary-text">${escapeHtml(ev.summary)}</div>
+              ${tagChipsHtml ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px;">${tagChipsHtml}</div>` : ''}
               <div style="font-size:0.65rem;color:var(--text-dim);font-family:var(--font-mono);margin-top:2px;">
                 Confidence: ${(ev.confidence * 100).toFixed(0)}%
               </div>

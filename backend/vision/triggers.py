@@ -4,14 +4,15 @@ Adheres strictly to AGENTS.md Section 10:
 - Zones and thresholds come from config/cameras.json.
 - Checks:
   1. tailgating: 2 distinct tracks cross the door zone within 1-2 seconds.
-  2. person_down: bounding box width/height ratio > aspect threshold and motionless for N seconds.
+  2. person_down: bounding box width/height ratio > aspect threshold or height collapse and motionless for N seconds.
   3. crowd_incident: person count in camera view/region > crowd_threshold.
   4. suspicious_activity: person stays inside restricted zone longer than max_loitering_seconds.
   5. fighting: two person tracks overlap (IoU) with high speed/acceleration.
+  6. dangerous_terrain & hazard zones: fall hazards, slip/spill hazards, high voltage.
 """
 
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -19,6 +20,8 @@ from typing import Any, Dict, List, Optional, Tuple
 def point_in_polygon(x: float, y: float, polygon: List[List[float]]) -> bool:
     """Ray casting algorithm to test if (x, y) is inside polygon."""
     n = len(polygon)
+    if n < 3:
+        return False
     inside = False
     p1x, p1y = polygon[0]
     for i in range(n + 1):
@@ -79,6 +82,9 @@ class TriggerEngine:
         self.cooldown_seconds = 8.0
         # Persistent spatial memory for collapsed persons (resistant to ID switches)
         self.prone_regions: List[Dict[str, Any]] = []
+        self.last_update_time: float = -1.0
+        # Active problems & dangerous terrain occupant tracking
+        self.active_zone_occupants: List[Dict[str, Any]] = []
 
     def update(
         self,
@@ -90,7 +96,16 @@ class TriggerEngine:
         detections: list of dicts: {"track_id": int, "box": [x1, y1, x2, y2], "confidence": float}
         Returns list of candidate event dicts.
         """
+        # Detect video loop or backward seek — reset tracking state cleanly
+        if self.last_update_time > 0 and (current_time < self.last_update_time - 0.5):
+            self.tracks.clear()
+            self.last_door_crossings.clear()
+            self.prone_regions.clear()
+            self.active_zone_occupants.clear()
+
+        self.last_update_time = current_time
         candidates: List[Dict[str, Any]] = []
+        self.active_zone_occupants = []
 
         # 1. Update tracks
         active_ids = set()
@@ -125,13 +140,15 @@ class TriggerEngine:
                     "category_hint": "crowd_incident",
                     "timestamp": datetime.now().isoformat(timespec="seconds"),
                     "track_ids": list(active_ids),
+                    "tags": ["crowd_incident", "crowd_surge", "density_overload"],
                 })
 
         # 3. Check Person Down & Suspicious Activity per person
         aspect_thresh = self.config.get("person_down_aspect_ratio_threshold", 0.70)
-        still_sec = self.config.get("person_down_still_seconds", 1.8)
+        still_sec = self.config.get("person_down_still_seconds", 0.8)
         door_zone = self.config.get("door_zone")
         restricted_zones = self.config.get("restricted_zones", [])
+        hazard_zones = self.config.get("hazard_zones", [])
 
         # Prune stale prone regions older than 2.5 seconds
         self.prone_regions = [
@@ -185,6 +202,7 @@ class TriggerEngine:
                             "category_hint": "person_down",
                             "timestamp": datetime.now().isoformat(timespec="seconds"),
                             "track_ids": list(matched_region["track_ids"]),
+                            "tags": ["person_down", "slip_and_fall", "medical_emergency"],
                         })
 
                 # Also track individual track persistence
@@ -202,13 +220,13 @@ class TriggerEngine:
                                 "category_hint": "person_down",
                                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                                 "track_ids": [tid],
+                                "tags": ["person_down", "slip_and_fall", "medical_emergency"],
                             })
             else:
                 th.down_start_time = None
                 th.down_start_pos = None
 
             # Check Door Crossing for Tailgating:
-            # Must transition from OUTSIDE the door zone into the door zone
             in_door = bool(door_zone and point_in_polygon(cx, cy, door_zone))
             if in_door:
                 if th.was_outside_door:
@@ -223,6 +241,7 @@ class TriggerEngine:
                                     "category_hint": "tailgating",
                                     "timestamp": datetime.now().isoformat(timespec="seconds"),
                                     "track_ids": [prior_tid, tid],
+                                    "tags": ["tailgating", "badge_passback", "access_violation"],
                                 })
                             break
                     self.last_door_crossings.append((tid, current_time))
@@ -234,37 +253,66 @@ class TriggerEngine:
             for rzone in restricted_zones:
                 zname = rzone.get("name", "restricted")
                 poly = rzone.get("polygon", [])
-                max_loiter = rzone.get("max_loitering_seconds", 6.0)
+                max_loiter = rzone.get("max_loitering_seconds", 4.0)
                 if poly and point_in_polygon(cx, cy, poly):
                     if zname not in th.zone_entry_times:
                         th.zone_entry_times[zname] = current_time
-                    elif current_time - th.zone_entry_times[zname] >= max_loiter:
-                        if self._can_trigger(f"suspicious_{zname}_{tid}", current_time, cooldown=20.0):
+                    dwell = round(current_time - th.zone_entry_times[zname], 1)
+                    self.active_zone_occupants.append({
+                        "track_id": tid,
+                        "zone_name": zname,
+                        "zone_type": "restricted",
+                        "dwell_sec": dwell,
+                        "max_sec": max_loiter,
+                        "severity": "WARNING" if dwell < max_loiter else "CRITICAL",
+                    })
+                    if dwell >= max_loiter:
+                        if self._can_trigger(f"suspicious_{zname}_{tid}", current_time, cooldown=15.0):
                             candidates.append({
                                 "camera_id": self.camera_id,
                                 "category_hint": "suspicious_activity",
                                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                                 "track_ids": [tid],
+                                "tags": ["suspicious_activity", "loitering", "restricted_zone"],
+                                "zone_name": zname,
                             })
                 else:
                     th.zone_entry_times.pop(zname, None)
 
-            # Check Hazard Zones (Suicide Risk / Fall from Height)
-            hazard_zones = self.config.get("hazard_zones", [])
+            # Check Dangerous Terrain & Hazard Zones (Ledges, Slip Hazards, High-Voltage)
             for hzone in hazard_zones:
                 zname = hzone.get("name", "hazard")
+                htype = hzone.get("hazard_type", "fall_hazard")
                 poly = hzone.get("polygon", [])
                 max_dwell = hzone.get("max_dwell_seconds", 2.0)
                 if poly and point_in_polygon(cx, cy, poly):
                     if zname not in th.hazard_entry_times:
                         th.hazard_entry_times[zname] = current_time
-                    elif current_time - th.hazard_entry_times[zname] >= max_dwell:
-                        if self._can_trigger(f"suicide_{zname}_{tid}", current_time, cooldown=15.0):
+                    dwell = round(current_time - th.hazard_entry_times[zname], 1)
+                    self.active_zone_occupants.append({
+                        "track_id": tid,
+                        "zone_name": zname,
+                        "zone_type": "hazard",
+                        "hazard_type": htype,
+                        "icon": hzone.get("icon", "⚠️"),
+                        "dwell_sec": dwell,
+                        "max_sec": max_dwell,
+                        "severity": hzone.get("severity", "CRITICAL"),
+                    })
+                    if dwell >= max_dwell:
+                        if self._can_trigger(f"hazard_{zname}_{tid}", current_time, cooldown=12.0):
+                            cat_hint = "suicide_risk" if htype == "fall_hazard" else "suspicious_activity"
                             candidates.append({
                                 "camera_id": self.camera_id,
-                                "category_hint": "suicide_risk",
+                                "category_hint": cat_hint,
                                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                                 "track_ids": [tid],
+                                "tags": [
+                                    "dangerous_terrain",
+                                    htype,
+                                    zname.lower().replace(" ", "_"),
+                                ],
+                                "zone_name": zname,
                             })
                 else:
                     th.hazard_entry_times.pop(zname, None)
@@ -280,7 +328,7 @@ class TriggerEngine:
                 t2 = self.tracks[active_list[j]]
                 iou = compute_iou(t1.positions[-1][1], t2.positions[-1][1])
                 if iou >= fight_iou_thresh:
-                    # Check velocity
+                    # Check velocity and kinetic oscillation
                     if len(t1.positions) >= 2 and len(t2.positions) >= 2:
                         p1_now, p1_prev = t1.positions[-1], t1.positions[-2]
                         p2_now, p2_prev = t2.positions[-1], t2.positions[-2]
@@ -296,6 +344,7 @@ class TriggerEngine:
                                         "category_hint": "fighting",
                                         "timestamp": datetime.now().isoformat(timespec="seconds"),
                                         "track_ids": [active_list[i], active_list[j]],
+                                        "tags": ["fighting", "physical_violence", "brawl_assault"],
                                     })
 
         # Deduplicate candidates within the same frame by category hint
@@ -308,6 +357,10 @@ class TriggerEngine:
                 unique_candidates.append(c)
 
         return unique_candidates
+
+    def get_active_zone_status(self) -> List[Dict[str, Any]]:
+        """Returns list of currently active zone occupants and hazard dwell statuses."""
+        return self.active_zone_occupants
 
     def _can_trigger(self, key: str, current_time: float, cooldown: Optional[float] = None) -> bool:
         cd = cooldown if cooldown is not None else self.cooldown_seconds

@@ -219,6 +219,18 @@
               </svg>
             </button>
           </div>
+
+          <!-- Active Problem Area Hazard Alert Banner -->
+          <div id="viewport-hazard-alert" class="viewport-hazard-alert" style="display:none;" aria-live="assertive">
+            <span class="hazard-alert-icon">⚠️</span>
+            <span id="viewport-hazard-text">ACTIVE TERRAIN VIOLATION</span>
+          </div>
+        </div>
+
+        <!-- Problem Areas & Dangerous Terrain Status Strip -->
+        <div class="terrain-status-bar" id="terrain-status-bar" aria-label="Camera Problem Areas and Dangerous Terrain Status">
+          <span style="color:var(--text-muted); font-size:0.65rem; text-transform:uppercase; letter-spacing:0.04em;">TERRAIN HAZARDS:</span>
+          <div id="terrain-badges-list" style="display:inline-flex; gap:6px; flex-wrap:wrap;"></div>
         </div>
 
         <!-- NVR Interactive Recording Scrubber Bar -->
@@ -352,6 +364,12 @@
           </button>
           <button class="filter-btn" data-category="suicide_risk" aria-pressed="false">
             Suicide / Fall <span class="filter-count" id="count-suicide_risk">0</span>
+          </button>
+          <button class="filter-btn" data-category="weapons" aria-pressed="false" style="border-color: rgba(244,63,94,0.4); color: #f43f5e;">
+            <span class="weapon-dot" style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#f43f5e; margin-right:3px;"></span>Weapons <span class="filter-count" id="count-weapons">0</span>
+          </button>
+          <button class="filter-btn" data-category="dangerous_terrain" aria-pressed="false" style="border-color: rgba(234,179,8,0.4); color: #eab308;">
+            ⚠️ Terrain <span class="filter-count" id="count-terrain">0</span>
           </button>
           <select id="confidence-filter" class="select" style="min-width: 125px; font-size: 0.72rem; padding: 2px 6px; margin-left: auto;" title="Filter incidents by minimum AI confidence threshold">
             <option value="0">All Conf (0%+)</option>
@@ -493,6 +511,11 @@
           <div class="modal-row">
             <span class="detail-label">ByteTrack Target IDs</span>
             <div id="modal-tracks" class="track-list"></div>
+          </div>
+
+          <div class="modal-row" id="modal-tags-row" style="display:none;">
+            <span class="detail-label">Security Tags</span>
+            <div id="modal-tags" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
           </div>
 
           <div class="modal-actions">

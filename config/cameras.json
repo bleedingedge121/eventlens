@@ -1,7 +1,7 @@
 {
   "cam1": {
     "name": "Main Entrance Lobby",
-    "description": "Monitors entrance turnstiles, main access door and vestibule",
+    "description": "Monitors entrance turnstiles, main access door, vestibule and lobby terrain",
     "door_zone": [
       [
         180,
@@ -41,7 +41,7 @@
             350
           ]
         ],
-        "max_loitering_seconds": 6
+        "max_loitering_seconds": 4.0
       }
     ],
     "crowd_threshold": 7,
@@ -52,7 +52,10 @@
     "fighting_speed_threshold_pixels_per_sec": 105.0,
     "hazard_zones": [
       {
-        "name": "Atrium Balcony Railing",
+        "name": "Atrium Balcony Drop Ledge",
+        "hazard_type": "fall_hazard",
+        "severity": "CRITICAL",
+        "icon": "\ud83d\uded1",
         "polygon": [
           [
             50,
@@ -71,13 +74,38 @@
             110
           ]
         ],
-        "max_dwell_seconds": 2.5
+        "max_dwell_seconds": 2.0
+      },
+      {
+        "name": "Main Lobby Wet Floor / Spill Zone",
+        "hazard_type": "slip_hazard",
+        "severity": "HIGH",
+        "icon": "\ud83d\udca7",
+        "polygon": [
+          [
+            80,
+            320
+          ],
+          [
+            260,
+            320
+          ],
+          [
+            260,
+            460
+          ],
+          [
+            80,
+            460
+          ]
+        ],
+        "max_dwell_seconds": 3.0
       }
     ]
   },
   "cam2": {
     "name": "Office Floor Corridor",
-    "description": "Hallway camera monitoring common areas and elevator lobby",
+    "description": "Hallway camera monitoring common areas, elevator lobby and electrical panels",
     "door_zone": [
       [
         100,
@@ -98,7 +126,7 @@
     ],
     "restricted_zones": [
       {
-        "name": "Emergency Exit Stairwell",
+        "name": "Emergency Exit Stairwell Route",
         "polygon": [
           [
             450,
@@ -117,7 +145,7 @@
             300
           ]
         ],
-        "max_loitering_seconds": 8
+        "max_loitering_seconds": 4.0
       }
     ],
     "crowd_threshold": 7,
@@ -129,6 +157,9 @@
     "hazard_zones": [
       {
         "name": "Stairwell Drop Ledge",
+        "hazard_type": "fall_hazard",
+        "severity": "CRITICAL",
+        "icon": "\ud83d\uded1",
         "polygon": [
           [
             400,
@@ -147,7 +178,32 @@
             120
           ]
         ],
-        "max_dwell_seconds": 2.5
+        "max_dwell_seconds": 2.0
+      },
+      {
+        "name": "High-Voltage Electrical Substation Panel",
+        "hazard_type": "electrical_hazard",
+        "severity": "CRITICAL",
+        "icon": "\u26a1",
+        "polygon": [
+          [
+            30,
+            80
+          ],
+          [
+            160,
+            80
+          ],
+          [
+            160,
+            240
+          ],
+          [
+            30,
+            240
+          ]
+        ],
+        "max_dwell_seconds": 1.5
       }
     ]
   }

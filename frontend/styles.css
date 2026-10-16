@@ -2417,3 +2417,92 @@ input:focus, select:focus, textarea:focus { border-color: var(--brand); }
   z-index: 20;
 }
 
+/* Dangerous Terrain & Active Hazard Overlays */
+.viewport-hazard-alert {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(239, 35, 60, 0.92);
+  color: #fff;
+  border: 1px solid #ff5c7a;
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  box-shadow: 0 0 20px rgba(239, 35, 60, 0.7);
+  animation: hazard-flash 0.8s infinite alternate ease-in-out;
+}
+@keyframes hazard-flash {
+  from { opacity: 0.85; transform: translateX(-50%) scale(0.98); }
+  to { opacity: 1; transform: translateX(-50%) scale(1.02); box-shadow: 0 0 26px rgba(239, 35, 60, 0.95); }
+}
+
+.terrain-status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(15, 23, 42, 0.6);
+  border-top: 1px solid var(--border-default);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+.terrain-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-secondary);
+}
+.terrain-badge--active {
+  background: rgba(239, 35, 60, 0.25) !important;
+  border-color: #ef233c !important;
+  color: #fff !important;
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(239, 35, 60, 0.5);
+  animation: pulse-ring 1s infinite;
+}
+
+/* Security Tag Chips */
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.60rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+.tag-chip--weapon {
+  background: rgba(239, 68, 68, 0.18) !important;
+  border-color: rgba(239, 68, 68, 0.7) !important;
+  color: #fca5a5 !important;
+}
+.tag-chip--hazard {
+  background: rgba(234, 179, 8, 0.15) !important;
+  border-color: rgba(234, 179, 8, 0.6) !important;
+  color: #fef08a !important;
+}
+.tag-chip--tailgating {
+  background: rgba(245, 158, 11, 0.15) !important;
+  border-color: rgba(245, 158, 11, 0.6) !important;
+  color: #fde68a !important;
+}
+
+

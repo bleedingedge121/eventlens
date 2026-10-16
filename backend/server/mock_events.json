@@ -8,6 +8,7 @@
     "summary": "Two individuals entered through turnstile A in rapid succession (0.8s apart) on a single badge swipe.",
     "keyframe_url": "/frames/1.jpg",
     "track_ids": [101, 102],
+    "tags": ["tailgating", "badge_passback", "turnstile_violation"],
     "latency_ms": 380
   },
   {
@@ -16,9 +17,10 @@
     "camera_id": "cam2",
     "category": "person_down",
     "confidence": 0.94,
-    "summary": "Tracked individual slipped and remained prone on the floor for over 4 seconds without movement.",
+    "summary": "Tracked individual slipped and remained prone on the floor for over 4 seconds without movement in high-traffic corridor.",
     "keyframe_url": "/frames/2.jpg",
     "track_ids": [107],
+    "tags": ["person_down", "slip_hazard", "medical_alert"],
     "latency_ms": 420
   },
   {
@@ -30,6 +32,7 @@
     "summary": "Lobby density exceeded safety threshold with 6 people congregating near turnstile exit corridor.",
     "keyframe_url": "/frames/3.jpg",
     "track_ids": [112, 114, 115, 118, 120, 121],
+    "tags": ["crowd_incident", "high_density", "bottleneck"],
     "latency_ms": 310
   },
   {
@@ -41,6 +44,7 @@
     "summary": "Individual lingered in the restricted stairwell entrance for over 12 seconds with no badge attempt.",
     "keyframe_url": "/frames/4.jpg",
     "track_ids": [133],
+    "tags": ["suspicious_activity", "loitering", "unauthorized_zone"],
     "latency_ms": 450
   },
   {
@@ -52,6 +56,7 @@
     "summary": "Two persons engaged in physical altercation with aggressive, rapid bounding box collisions.",
     "keyframe_url": "/frames/5.jpg",
     "track_ids": [140, 142],
+    "tags": ["fighting", "physical_altercation", "security_escalation"],
     "latency_ms": 520
   },
   {
@@ -63,6 +68,31 @@
     "summary": "Second person followed authorized staff member through server room access door without scanning credentials.",
     "keyframe_url": "/frames/6.jpg",
     "track_ids": [155, 156],
+    "tags": ["tailgating", "badge_passback"],
     "latency_ms": 390
+  },
+  {
+    "id": 7,
+    "timestamp": "2026-10-15T16:04:18",
+    "camera_id": "cam1",
+    "category": "fighting",
+    "confidence": 0.89,
+    "summary": "[WEAPON DETECTED: FIREARM] Individual in lobby displayed a concealed handgun during physical confrontation near vestibule.",
+    "keyframe_url": "/frames/7.jpg",
+    "track_ids": [168, 170],
+    "tags": ["fighting", "weapon_detected", "firearm", "threat_level_critical"],
+    "latency_ms": 415
+  },
+  {
+    "id": 8,
+    "timestamp": "2026-10-15T16:40:55",
+    "camera_id": "cam1",
+    "category": "suspicious_activity",
+    "confidence": 0.92,
+    "summary": "Occupant entered dangerous terrain Atrium Balcony Drop Ledge exceeding safety dwell threshold of 2.0s.",
+    "keyframe_url": "/frames/8.jpg",
+    "track_ids": [174],
+    "tags": ["dangerous_terrain", "fall_hazard", "atrium_balcony_drop_ledge", "osha_violation"],
+    "latency_ms": 360
   }
 ]

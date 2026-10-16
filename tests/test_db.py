@@ -88,6 +88,21 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["category"], "fighting")
 
+    def test_insert_and_get_tags(self):
+        event_data = {
+            "timestamp": "2026-10-15T15:00:00",
+            "camera_id": "cam1",
+            "category": "fighting",
+            "confidence": 0.92,
+            "summary": "[WEAPON DETECTED] Person with handgun.",
+            "tags": ["fighting", "weapon_detected", "firearm"],
+        }
+        event_id = self.db.insert_event(event_data)
+        fetched = self.db.get_event(event_id)
+        self.assertIsNotNone(fetched)
+        self.assertIn("tags", fetched)
+        self.assertEqual(fetched["tags"], ["fighting", "weapon_detected", "firearm"])
+
 
 if __name__ == "__main__":
     unittest.main()

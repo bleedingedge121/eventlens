@@ -183,6 +183,9 @@ def _camera_worker_loop(
 
             # 3. Check Anomaly Triggers (Geometry & Velocity Rules)
             candidates = trigger.update(detections, current_time=timestamp_sec)
+            with _LOCK:
+                if camera_id in _CAMERA_METRICS:
+                    _CAMERA_METRICS[camera_id]["active_hazards"] = trigger.get_active_zone_status()
             for cand in candidates:
                 # Package recent frames and keyframe
                 recent_frames_bytes = []
@@ -287,6 +290,7 @@ def get_camera_status(camera_id: str) -> dict:
             "is_paused": metrics.get("is_paused", False),
             "pts_sec": metrics.get("pts_sec", 0.0),
             "progress_ratio": metrics.get("progress_ratio", 0.0),
+            "active_hazards": metrics.get("active_hazards", []),
         }
 
 

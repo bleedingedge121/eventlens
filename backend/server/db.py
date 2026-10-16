@@ -69,6 +69,11 @@ class Database:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_category ON events(category)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_camera ON events(camera_id)")
+            # Add tags column if not exists
+            try:
+                cursor.execute("ALTER TABLE events ADD COLUMN tags TEXT DEFAULT '[]'")
+            except sqlite3.OperationalError:
+                pass
             conn.commit()
 
     def insert_event(self, event: Dict[str, Any]) -> int:
@@ -79,6 +84,12 @@ class Database:
         else:
             track_ids_str = str(track_ids_val)
 
+        tags_val = event.get("tags", [])
+        if isinstance(tags_val, (list, tuple)):
+            tags_str = json.dumps(tags_val)
+        else:
+            tags_str = str(tags_val)
+
         timestamp = event.get("timestamp") or datetime.now().isoformat(timespec="seconds")
 
         with self._connection() as conn:
@@ -87,8 +98,8 @@ class Database:
                 """
                 INSERT INTO events (
                     timestamp, camera_id, category, confidence, summary,
-                    keyframe_path, track_ids, latency_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    keyframe_path, track_ids, latency_ms, tags
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     timestamp,
@@ -99,6 +110,7 @@ class Database:
                     event.get("keyframe_path", ""),
                     track_ids_str,
                     int(event.get("latency_ms", 0)),
+                    tags_str,
                 ),
             )
             conn.commit()
@@ -231,6 +243,17 @@ class Database:
         keyframe_path = row["keyframe_path"] or ""
         keyframe_url = f"/frames/{Path(keyframe_path).name}" if keyframe_path else f"/frames/{row['id']}.jpg"
 
+        tags = []
+        try:
+            if "tags" in row.keys() and row["tags"]:
+                tags = json.loads(row["tags"])
+        except Exception:
+            tags = []
+        if not tags:
+            tags = [row["category"]]
+            if "[WEAPON" in row["summary"]:
+                tags.append("weapon_detected")
+
         return {
             "id": row["id"],
             "timestamp": row["timestamp"],
@@ -241,4 +264,5 @@ class Database:
             "keyframe_url": keyframe_url,
             "track_ids": track_ids,
             "latency_ms": row["latency_ms"],
+            "tags": tags,
         }

@@ -83,6 +83,10 @@ class ChatEngine:
         if not cleaned_lower.startswith("select"):
             return False, ""
 
+        # Normalize PostgreSQL ILIKE to SQLite LIKE
+        cleaned = re.sub(r"\bILIKE\b", "LIKE", cleaned, flags=re.IGNORECASE)
+        cleaned_lower = cleaned.lower()
+
         # Reject any semicolon in the body
         if ";" in cleaned:
             return False, ""
@@ -122,6 +126,7 @@ events (
   confidence REAL,       -- 0.0 to 1.0
   summary TEXT,          -- description text
   track_ids TEXT,        -- JSON array of person IDs e.g. '[1, 2]'
+  tags TEXT,             -- JSON array of tags e.g. '["tailgating", "weapon_detected", "dangerous_terrain", "fall_hazard"]'
   latency_ms INTEGER
 )
 
@@ -132,6 +137,12 @@ One hour ago was: {one_hour_ago}
 EXAMPLES:
 Q: "Show all tailgating events from camera 2 today"
 SQL: SELECT * FROM events WHERE category = 'tailgating' AND camera_id = 'cam2' AND timestamp LIKE '{today_str}%' ORDER BY timestamp DESC LIMIT 50;
+
+Q: "Show all events with weapons"
+SQL: SELECT * FROM events WHERE summary LIKE '%[WEAPON%' OR tags LIKE '%weapon%' ORDER BY id DESC LIMIT 50;
+
+Q: "Show dangerous terrain or hazard zone events"
+SQL: SELECT * FROM events WHERE category = 'suicide_risk' OR tags LIKE '%dangerous_terrain%' OR tags LIKE '%hazard%' ORDER BY id DESC LIMIT 50;
 
 Q: "Did anyone fall down in the last hour?"
 SQL: SELECT * FROM events WHERE category = 'person_down' AND timestamp >= '{one_hour_ago}' ORDER BY timestamp DESC LIMIT 20;
@@ -206,7 +217,12 @@ SQL:"""
         if is_today:
             clauses.append(f"timestamp LIKE '{today_str}%'")
         if is_weapon:
-            clauses.append("(summary LIKE '%weapon%' OR summary LIKE '%gun%' OR summary LIKE '%firearm%' OR summary LIKE '%knife%' OR summary LIKE '%armed%')")
+            clauses.append("(summary LIKE '%[WEAPON%' OR summary LIKE '%gun%' OR summary LIKE '%knife%' OR tags LIKE '%weapon%')")
+
+        # Dangerous terrain / hazard detection
+        is_hazard = any(t in q for t in ["terrain", "hazard", "ledge", "balcony", "spill", "slip", "stairwell", "drop", "voltage"])
+        if is_hazard:
+            clauses.append("(category = 'suicide_risk' OR tags LIKE '%dangerous_terrain%' OR tags LIKE '%hazard%' OR summary LIKE '%hazard%' OR summary LIKE '%ledge%')")
 
         where_str = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         return f"SELECT * FROM events{where_str} ORDER BY id DESC LIMIT 50"

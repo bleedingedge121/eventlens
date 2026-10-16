@@ -59,6 +59,20 @@ class TestChatSafety(unittest.TestCase):
         self.assertTrue(valid)
         self.assertIn("LIMIT 50", sanitized)
 
+    def test_normalize_ilike_to_like(self):
+        sql = "SELECT * FROM events WHERE summary ILIKE '%gun%' LIMIT 10"
+        valid, sanitized = self.chat_engine.validate_sql(sql)
+        self.assertTrue(valid)
+        self.assertNotIn("ILIKE", sanitized)
+        self.assertIn("LIKE", sanitized)
+
+    def test_fallback_sql_weapons_and_hazards(self):
+        sql_weapon = self.chat_engine._template_sql_fallback("Were any firearms or weapons detected?", "2026-10-16")
+        self.assertIn("weapon", sql_weapon.lower())
+
+        sql_hazard = self.chat_engine._template_sql_fallback("Show dangerous terrain and fall hazards", "2026-10-16")
+        self.assertTrue("hazard" in sql_hazard.lower() or "terrain" in sql_hazard.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

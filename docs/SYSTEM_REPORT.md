@@ -74,6 +74,7 @@ This document serves as the authoritative technical report detailing:
   - Keyframe images stored at `data/frames/{event_id}.jpg`.
   - Multi-frame temporal image sequences stored at `data/clips/{event_id}/frame_XX.jpg`.
   - Compiled MP4 event clips generated via OpenCV `VideoWriter` at `data/clips/{event_id}/clip.mp4` for direct browser streaming.
+  - Automated schema migration adding `tags TEXT DEFAULT '[]'` column while strictly maintaining AGENTS.md Section 8 and Section 9 backward compatibility.
 
 ### 1.4 Conversational SafeSQL Engine (`backend/server/chat.py`)
 - Natural-language to SQL translation using local LLMs (e.g. `Hermes-4-14B:latest` or `qwen2.5-coder`).
@@ -82,12 +83,26 @@ This document serves as the authoritative technical report detailing:
   - Semicolons and multiple statements strictly prohibited.
   - Strict token blacklist blocking all write/DDL keywords (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`, `EXEC`, `PRAGMA`).
   - Strict table isolation: queries can ONLY access the `events` table.
+  - Automatic normalization of dialect differences (e.g., PostgreSQL `ILIKE` normalized to SQLite `LIKE`).
   - Mandatory `LIMIT <= 100` enforcement.
   - Read-only SQLite connection execution.
 - Python-side temporal resolution: natural language concepts ("today", "yesterday", "last hour") resolved deterministically into concrete ISO timestamps in Python before prompting the model.
-- Safe deterministic regex template fallback guaranteeing reliable responses even when Ollama is offline.
+- Safe deterministic regex template fallback guaranteeing reliable responses (including weapon and dangerous terrain searches) even when Ollama is offline.
 
-### 1.5 Surveillance NVR Console (`frontend/`)
+### 1.5 Dangerous Terrain & Problem Area Hazard Monitoring
+- **OSHA Caution Hatching & Live Overlays**: Hazard zones rendered with industrial diagonal caution hatching in HTML5 Canvas (`drawZones`), with distinct severity color coding (`CRITICAL` vs `HIGH`).
+- **Live Dwell & Occupancy Telemetry**: Continuous tracking of occupants dwelling in hazardous zones (`Atrium Balcony Drop Ledge`, `Wet Floor / Spill Zone`, `High-Voltage Electrical Substation Panel`), exposing `active_hazards` via `/api/cameras/{cam_id}`.
+- **Viewport Hazard Alert Banner**: Instant high-contrast alert banner displayed on top of the live stream when any target exceeds safety dwell limits.
+- **Problem Areas Status Strip**: Dedicated status strip below the viewport detailing active violations and clear statuses across all configured camera hazards.
+- **Video Loop Wrap-Around Resilience**: Timestamp reset logic preventing negative deltas or stale dwell calculations when test videos seek or replay.
+
+### 1.6 Weapon Detection & Security Threat Tagging
+- **Multi-Class Threat Extraction**: Visual VLM analysis detecting firearms, bladed weapons, and blunt instruments with rigorous false-positive suppression (ignoring colloquial terms like "camera shot").
+- **Security Tags System**: Structured tags attached to every event (e.g. `["tailgating", "badge_passback"]`, `["dangerous_terrain", "fall_hazard"]`, `["weapon_detected", "firearm"]`).
+- **SOC Tag Chips**: High-visibility pill chips rendered on incident cards in the operations feed and inspection modals (`🔫 WEAPON: FIREARM`, `⚠️ DANGEROUS TERRAIN`, `🚶‍♂️🚶‍♂️ TAILGATING`).
+- **Dedicated Incident Filters**: Instant filter buttons for `Weapons` and `Terrain Hazards` with real-time incident counters.
+
+### 1.7 Surveillance NVR Console (`frontend/`)
 - **Operations Console (`index.html`, `dashboard.js`, `styles.css`)**:
   - Industrial dark-theme SOC design system (zero frameworks, pure vanilla ES6+).
   - Single Camera Focus (1x1) and Multi-Camera Matrix Grid (2x2) layouts.
@@ -105,6 +120,7 @@ This document serves as the authoritative technical report detailing:
     - High-resolution keyframe viewer.
     - Integrated HTML5 MP4 video clip player.
     - Multi-frame clip sequence scrubber (`◀ Prev`, `▶ Next`, `▶ Play Clip`).
+    - Security tags row displaying all classified threat and hazard tags.
     - Copy raw JSON telemetry button.
     - Direct "Query AI about this Event" bridge to the conversational engine.
   - Dual-mode Activity Timeline: Combined incident distribution and Multi-Track Swimlanes per camera.

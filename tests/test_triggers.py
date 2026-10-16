@@ -78,6 +78,42 @@ class TestTriggers(unittest.TestCase):
         self.assertEqual(len(cands2), 1)
         self.assertEqual(cands2[0]["category_hint"], "suicide_risk")
 
+    def test_dangerous_terrain_hazard_tracking_and_tags(self):
+        config = {
+            "hazard_zones": [
+                {
+                    "name": "Atrium Balcony Ledge",
+                    "hazard_type": "fall_hazard",
+                    "severity": "CRITICAL",
+                    "icon": "🛑",
+                    "polygon": [[50, 20], [200, 20], [200, 100], [50, 100]],
+                    "max_dwell_seconds": 2.0,
+                }
+            ]
+        }
+        engine = TriggerEngine("cam1", config)
+
+        # Frame 1: Person inside hazard zone (standing person: w=20, h=60, center=(90, 70))
+        det = [{"track_id": 9, "box": [80, 40, 100, 100], "confidence": 0.95}]
+        engine.update(det, current_time=1.0)
+        active = engine.get_active_zone_status()
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0]["zone_name"], "Atrium Balcony Ledge")
+        self.assertEqual(active[0]["hazard_type"], "fall_hazard")
+        self.assertEqual(active[0]["icon"], "🛑")
+        self.assertEqual(active[0]["dwell_sec"], 0.0)
+
+        # Frame 2: Person dwells past 2.0s
+        cands = engine.update(det, current_time=3.2)
+        self.assertEqual(len(cands), 1)
+        self.assertIn("dangerous_terrain", cands[0].get("tags", []))
+        self.assertIn("fall_hazard", cands[0].get("tags", []))
+
+        # Frame 3: Video loop wrap-around (timestamp goes from 3.2 to 0.5)
+        # Verify engine resets safely without raising error
+        engine.update(det, current_time=0.5)
+        self.assertEqual(engine.last_update_time, 0.5)
+
 
 if __name__ == "__main__":
     unittest.main()

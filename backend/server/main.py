@@ -18,13 +18,16 @@ from pathlib import Path
 from typing import Optional
 import cv2
 
-logger = logging.getLogger("eventlens.server")
-
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+try:
+    cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+except Exception:
+    pass
 
 import numpy as np
 
@@ -144,6 +147,7 @@ def on_candidate_event(candidate: dict):
         "keyframe_path": "",
         "track_ids": candidate.get("track_ids", []),
         "latency_ms": latency_ms,
+        "tags": vlm_result.get("tags") or candidate.get("tags", []),
     }
 
     event_id = db.insert_event(event_payload)
@@ -430,10 +434,12 @@ def get_dataset_videos():
 
 
 @app.get("/stream/{camera_id}")
-async def video_stream(camera_id: str):
-    """Streams live MJPEG frames for the given camera with zero-latency buffer."""
+async def video_stream(camera_id: str, request: Request):
+    """Streams live MJPEG frames for the given camera with zero-latency buffer and clean disconnect."""
     async def frame_generator():
         while True:
+            if await request.is_disconnected():
+                break
             frame_bytes = get_latest_jpeg(camera_id)
             yield (
                 b"--frame\r\n"

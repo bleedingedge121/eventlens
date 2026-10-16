@@ -142,24 +142,27 @@ class VLMClient:
             pass
 
         try:
+            candidate_tags = candidate.get("tags", [])
             prompt = (
-                f"You are a surveillance security AI analyzing CCTV camera {camera_id}.\n"
-                f"The motion tracker flagged potential '{category_hint}'.\n"
+                f"You are a physical surveillance security AI analyzing CCTV camera {camera_id}.\n"
+                f"Motion tracker flagged potential '{category_hint}'.\n"
                 "Examine the image carefully. Identify what is happening.\n"
                 "Respond ONLY with a JSON object in this exact format:\n"
                 '{"category": "person_down"|"fighting"|"suspicious_activity"|"tailgating"|"crowd_incident"|"suicide_risk"|"none", '
                 '"confidence": 0.85, '
                 '"summary": "2 factual sentences describing what you observe in the scene.", '
-                '"weapon_detected": false}\n'
+                '"weapon_detected": false, '
+                '"weapon_type": "none"|"firearm"|"bladed"|"blunt", '
+                '"tags": ["' + category_hint + '"]}\n'
                 "Categories:\n"
-                "- person_down: collapsed/lying prone on ground (NOT sitting normally)\n"
+                "- person_down: collapsed/lying prone on ground (slip & fall, medical)\n"
                 "- fighting: physical altercation, violent struggle, punches, or brawl\n"
                 "- suspicious_activity: unauthorized loitering or prowling\n"
                 "- tailgating: two people entering consecutively through turnstile/door on one badge\n"
                 "- crowd_incident: dangerously dense crowd or panic surge\n"
-                "- suicide_risk: climbing over railing/balcony/ledge or hanging at height\n"
+                "- suicide_risk: climbing over railing/balcony/ledge, fall hazard, or hanging at height\n"
                 "- none: normal, calm, routine activity\n"
-                "IMPORTANT: Set weapon_detected to true ONLY if a gun, rifle, or knife is clearly visible in hands. Otherwise set false.\n"
+                "WEAPON DETECTION: Set weapon_detected to true and weapon_type to firearm/bladed ONLY if a gun, rifle, or knife is clearly visible in hand. Otherwise set false and 'none'.\n"
                 "Output JSON now:"
             )
 
@@ -173,19 +176,25 @@ class VLMClient:
                     summary = str(parsed.get("summary", "")).strip()
                     if not summary or len(summary) < 10:
                         summary = TEMPLATE_SUMMARIES.get(cat, "Event detected by AI vision analysis.")
+                    tags = list(set(parsed.get("tags", []) + candidate_tags + [cat]))
                     return {
                         "category": cat,
                         "confidence": max(0.0, min(1.0, conf)),
                         "summary": summary,
                         "weapon_detected": parsed.get("weapon_detected", False),
+                        "weapon_type": parsed.get("weapon_type", "none"),
+                        "tags": tags,
                     }
                 else:
                     logger.info(f"[VLM] Response parsed via heuristic extraction: {raw_response[:100]}")
+                    tags = list(set(candidate_tags + [category_hint]))
                     return {
                         "category": category_hint,
                         "confidence": 0.70,
                         "summary": f"{TEMPLATE_SUMMARIES.get(category_hint, 'Activity detected.')} Visual confirmation verified by pipeline.",
                         "weapon_detected": False,
+                        "weapon_type": "none",
+                        "tags": tags,
                     }
             except urllib.error.URLError as e:
                 logger.error(f"[VLM] Ollama connection failed ({model}): {e}")
@@ -376,6 +385,10 @@ class VLMClient:
             elif isinstance(weapon_val, str):
                 has_weapon = weapon_val.lower().strip() in ["true", "1", "yes"]
 
+            weapon_type = str(d.get("weapon_type", "none")).lower().strip()
+            if weapon_type not in ["firearm", "bladed", "blunt"]:
+                weapon_type = "firearm" if has_weapon else "none"
+
             summary_lower = summary.lower()
             if any(neg in summary_lower for neg in [
                 "no weapon", "no visible weapon", "no firearms", "without weapon",
@@ -383,15 +396,39 @@ class VLMClient:
                 "wide shot", "long shot", "close-up shot"
             ]):
                 has_weapon = False
+                weapon_type = "none"
 
-            if has_weapon and "[WEAPON DETECTED]" not in summary:
-                summary = f"[WEAPON DETECTED] {summary}"
+            # Check if summary mentions explicit firearm or knife
+            if not has_weapon:
+                if any(w in summary_lower for w in ["holding a gun", "holding a rifle", "holding a pistol", "handgun visible", "wielding a knife"]):
+                    has_weapon = True
+                    weapon_type = "bladed" if "knife" in summary_lower else "firearm"
+
+            if has_weapon:
+                badge = f"[WEAPON DETECTED] [WEAPON: {weapon_type.upper()}]" if weapon_type != "none" else "[WEAPON DETECTED]"
+                if "[WEAPON DETECTED]" not in summary:
+                    summary = f"{badge} {summary}"
+
+            # Extract tags
+            raw_tags = d.get("tags", [])
+            tags_list = []
+            if isinstance(raw_tags, list):
+                tags_list = [str(t).lower().strip() for t in raw_tags if t]
+            elif isinstance(raw_tags, str) and raw_tags:
+                tags_list = [t.strip().lower() for t in raw_tags.split(",") if t.strip()]
+
+            if cat and cat not in tags_list:
+                tags_list.append(cat)
+            if has_weapon:
+                tags_list.extend(["weapon_detected", f"weapon_{weapon_type}"])
 
             return {
                 "category": cat,
                 "confidence": max(0.0, min(1.0, conf)),
                 "summary": summary,
                 "weapon_detected": has_weapon,
+                "weapon_type": weapon_type,
+                "tags": list(set(tags_list)),
             }
 
         # 1. Try direct parse
