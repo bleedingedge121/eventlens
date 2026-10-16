@@ -70,7 +70,63 @@ class TestCameraAPI(unittest.TestCase):
             self.assertEqual(res.status_code, 200)
             self.assertEqual(res.json(), {"ok": True})
 
+    def test_camera_zones_get_and_update(self):
+        # 1. GET zones for cam1
+        res = self.client.get("/api/cameras/cam1/zones")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["camera_id"], "cam1")
+        self.assertIn("door_zone", data)
+        self.assertIn("restricted_zones", data)
+
+        # 2. PUT updated zones
+        new_door = [[100, 200], [300, 200], [300, 400], [100, 400]]
+        res_put = self.client.put("/api/cameras/cam1/zones", json={"door_zone": new_door})
+        self.assertEqual(res_put.status_code, 200)
+        self.assertTrue(res_put.json().get("ok"))
+        self.assertEqual(res_put.json().get("door_zone"), new_door)
+
+        # Verify persistent read
+        res_check = self.client.get("/api/cameras/cam1/zones")
+        self.assertEqual(res_check.json().get("door_zone"), new_door)
+
+    def test_delete_events_requires_confirmation(self):
+        # Without confirmation -> 400
+        res = self.client.delete("/api/events")
+        self.assertEqual(res.status_code, 400)
+
+        # With confirm=true query param -> 200
+        res_ok = self.client.delete("/api/events?confirm=true")
+        self.assertEqual(res_ok.status_code, 200)
+        self.assertTrue(res_ok.json().get("success"))
+
+        # With header -> 200
+        res_hdr = self.client.delete("/api/events", headers={"X-Confirm-Delete": "true"})
+        self.assertEqual(res_hdr.status_code, 200)
+        self.assertTrue(res_hdr.json().get("success"))
+
+    def test_clip_endpoints_path_traversal_protection(self):
+        # Negative / invalid ID -> 400
+        res = self.client.get("/api/clips/-5")
+        self.assertEqual(res.status_code, 400)
+
+        res_vid = self.client.get("/api/clips/-1/video")
+        self.assertEqual(res_vid.status_code, 400)
+
+        # Nonexistent event -> returns empty list gracefully
+        res_empty = self.client.get("/api/clips/999999")
+        self.assertEqual(res_empty.status_code, 200)
+        self.assertEqual(res_empty.json()["frames"], [])
+
+    def test_stats_includes_genuine_gpu_telemetry(self):
+        res = self.client.get("/api/stats")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIn("gpu", data)
+        self.assertIn(data["gpu"]["status"], ["available", "unavailable"])
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

@@ -2128,7 +2128,10 @@
       els.clearEventsBtn.addEventListener('click', async () => {
         if (!confirm('Clear all recorded incidents from database and feed?')) return;
         try {
-          const res = await fetch('/api/events', { method: 'DELETE' });
+          const res = await fetch('/api/events?confirm=true', {
+            method: 'DELETE',
+            headers: { 'X-Confirm-Delete': 'true' }
+          });
           if (res.ok) {
             currentEvents = [];
             renderEvents();

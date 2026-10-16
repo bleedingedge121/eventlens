@@ -125,6 +125,11 @@ class ChatRequest(BaseModel):
     question: str
 
 
+class ZoneUpdateRequest(BaseModel):
+    door_zone: Optional[List[List[float]]] = None
+    restricted_zones: Optional[List[Dict[str, Any]]] = None
+
+
 def on_candidate_event(candidate: dict):
     """Callback invoked by the vision pipeline when an event rule triggers.
 
@@ -209,11 +214,14 @@ def on_candidate_event(candidate: dict):
                     ch, cw = decoded_images[0].shape[:2]
                     clip_mp4_path = clip_dir / "clip.mp4"
                     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                    out = cv2.VideoWriter(str(clip_mp4_path), fourcc, 10.0, (cw, ch))
+                    clip_fps = float(candidate.get("fps") or 25.0)
+                    if clip_fps <= 0.0 or clip_fps > 120.0:
+                        clip_fps = 25.0
+                    out = cv2.VideoWriter(str(clip_mp4_path), fourcc, clip_fps, (cw, ch))
                     for c_img in decoded_images:
                         out.write(c_img)
                     out.release()
-                    logger.info(f"[Server] Generated MP4 video clip: {clip_mp4_path}")
+                    logger.info(f"[Server] Generated MP4 video clip: {clip_mp4_path} at {clip_fps} FPS")
                 except Exception as e:
                     logger.warning(f"[Server] MP4 clip generation error: {e}")
 
@@ -246,8 +254,17 @@ def get_event(event_id: int):
 
 
 @app.delete("/api/events")
-def delete_all_events():
-    """Wipes all event records from the database and frames folder."""
+def delete_all_events(
+    request: Request,
+    confirm: Optional[bool] = Query(False),
+):
+    """Wipes all event records from the database and frames folder. Requires explicit confirmation."""
+    has_header = request.headers.get("x-confirm-delete", "").lower() == "true"
+    if not confirm and not has_header:
+        raise HTTPException(
+            status_code=400,
+            detail="Confirmation required: pass ?confirm=true or header X-Confirm-Delete: true",
+        )
     db.clear_events()
     for f in FRAMES_DIR.glob("*.jpg"):
         try:
@@ -264,10 +281,38 @@ def delete_all_events():
     return {"success": True, "message": "All incident records, keyframes, and event clips cleared"}
 
 
+def get_gpu_telemetry() -> Dict[str, Any]:
+    """Returns authentic PyTorch CUDA GPU metrics or 'unavailable' without fabrication."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            dev_idx = 0
+            allocated_mb = round(torch.cuda.memory_allocated(dev_idx) / (1024 * 1024), 1)
+            reserved_mb = round(torch.cuda.memory_reserved(dev_idx) / (1024 * 1024), 1)
+            total_mb = round(torch.cuda.get_device_properties(dev_idx).total_memory / (1024 * 1024), 1)
+            return {
+                "status": "available",
+                "device": torch.cuda.get_device_name(dev_idx),
+                "allocated_mb": allocated_mb,
+                "reserved_mb": reserved_mb,
+                "total_mb": total_mb,
+            }
+    except Exception:
+        pass
+    return {
+        "status": "unavailable",
+        "device": None,
+        "allocated_mb": None,
+        "reserved_mb": None,
+        "total_mb": None,
+    }
+
+
 @app.get("/api/stats")
 def get_stats():
     res = db.get_stats()
     res["vlm"] = vlm.get_status()
+    res["gpu"] = get_gpu_telemetry()
     return res
 
 
@@ -524,17 +569,19 @@ def create_camera(req: CameraCreateRequest):
         except Exception:
             configs = {}
 
-    cam_dict = {
-        "name": req.name.strip() or f"Camera {cam_id.upper()}",
-        "description": req.description.strip(),
-        "scene_profile": req.scene_profile or "indoor_premises",
-        "door_zone": req.door_zone or [[180, 240], [420, 240], [420, 480], [180, 480]],
-        "restricted_zones": req.restricted_zones or [],
-        "crowd_threshold": req.crowd_threshold or 7,
-        "tailgating_time_window_seconds": 1.8,
-        "fighting_overlap_iou": 0.38,
-        "fighting_speed_threshold_pixels_per_sec": 105.0,
-    }
+    from backend.server.config import get_default_camera_config
+    cam_dict = get_default_camera_config(cam_id, scene_profile=req.scene_profile or "indoor_premises")
+    if req.name and req.name.strip():
+        cam_dict["name"] = req.name.strip()
+    if req.description:
+        cam_dict["description"] = req.description.strip()
+    if req.door_zone is not None:
+        cam_dict["door_zone"] = req.door_zone
+    if req.restricted_zones is not None:
+        cam_dict["restricted_zones"] = req.restricted_zones
+    if req.crowd_threshold is not None:
+        cam_dict["crowd_threshold"] = req.crowd_threshold
+
     configs[cam_id] = cam_dict
 
     try:
@@ -553,6 +600,9 @@ def create_camera(req: CameraCreateRequest):
 @app.delete("/api/cameras/{camera_id}")
 def delete_camera(camera_id: str):
     """Stops worker and removes camera from config/cameras.json."""
+    camera_id = camera_id.strip().lower()
+    if not camera_id:
+        raise HTTPException(status_code=400, detail="camera_id is required")
     stop_camera(camera_id)
     cam_file = BASE_DIR / "config" / "cameras.json"
     if cam_file.exists():
@@ -574,6 +624,74 @@ def get_camera(camera_id: str):
     status = get_camera_status(camera_id)
     status["vlm"] = vlm.get_status()
     return status
+
+
+@app.get("/api/cameras/{camera_id}/zones")
+def get_camera_zones(camera_id: str):
+    """Returns configured door and restricted zones for a camera."""
+    cam_file = BASE_DIR / "config" / "cameras.json"
+    if not cam_file.exists():
+        raise HTTPException(status_code=404, detail="Camera config not found")
+    try:
+        with open(cam_file, "r", encoding="utf-8") as f:
+            configs = json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if camera_id not in configs:
+        raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found")
+
+    c = configs[camera_id]
+    return {
+        "camera_id": camera_id,
+        "door_zone": c.get("door_zone", []),
+        "restricted_zones": c.get("restricted_zones", []),
+    }
+
+
+@app.put("/api/cameras/{camera_id}/zones")
+def update_camera_zones(camera_id: str, req: ZoneUpdateRequest):
+    """Updates door and restricted zones for a camera, persists to config, and hot-reloads running pipeline."""
+    cam_file = BASE_DIR / "config" / "cameras.json"
+    if not cam_file.exists():
+        raise HTTPException(status_code=404, detail="Camera config not found")
+    try:
+        with open(cam_file, "r", encoding="utf-8") as f:
+            configs = json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if camera_id not in configs:
+        raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found")
+
+    if req.door_zone is not None:
+        configs[camera_id]["door_zone"] = req.door_zone
+    if req.restricted_zones is not None:
+        configs[camera_id]["restricted_zones"] = req.restricted_zones
+
+    try:
+        with open(cam_file, "w", encoding="utf-8") as f:
+            json.dump(configs, f, indent=2)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to persist zones: {e}")
+
+    # Hot-reload in memory if camera pipeline is running
+    from backend.vision.pipeline import get_trigger_engine
+    trig = get_trigger_engine(camera_id)
+    if trig:
+        if req.door_zone is not None:
+            trig.config["door_zone"] = req.door_zone
+        if req.restricted_zones is not None:
+            trig.config["restricted_zones"] = req.restricted_zones
+        logger.info(f"[Server] Hot-reloaded zones for camera {camera_id}")
+
+    return {
+        "ok": True,
+        "success": True,
+        "camera_id": camera_id,
+        "door_zone": configs[camera_id].get("door_zone", []),
+        "restricted_zones": configs[camera_id].get("restricted_zones", []),
+    }
 
 
 @app.get("/api/devices")
@@ -668,10 +786,12 @@ app.mount("/clips", StaticFiles(directory=str(CLIPS_DIR)), name="clips")
 
 @app.get("/api/clips/{event_id}")
 def get_event_clips(event_id: int):
-    """Returns list of clip frame filenames for a given event."""
-    clip_dir = CLIPS_DIR / str(event_id)
-    if not clip_dir.exists():
-        return {"event_id": event_id, "frames": []}
+    """Returns list of clip frame filenames for a given event with path traversal protection."""
+    if event_id < 1:
+        raise HTTPException(status_code=400, detail="Invalid event_id: must be positive integer")
+    clip_dir = (CLIPS_DIR / str(event_id)).resolve()
+    if not clip_dir.is_relative_to(CLIPS_DIR.resolve()) or not clip_dir.exists():
+        return {"event_id": event_id, "frames": [], "count": 0}
     frames = sorted([f.name for f in clip_dir.glob("*.jpg")])
     return {
         "event_id": event_id,
@@ -682,9 +802,11 @@ def get_event_clips(event_id: int):
 
 @app.get("/api/clips/{event_id}/video")
 def get_event_video_clip(event_id: int):
-    """Returns the recorded MP4 event clip if available."""
-    clip_mp4 = CLIPS_DIR / str(event_id) / "clip.mp4"
-    if not clip_mp4.exists():
+    """Returns the recorded MP4 event clip if available with path traversal protection."""
+    if event_id < 1:
+        raise HTTPException(status_code=400, detail="Invalid event_id: must be positive integer")
+    clip_mp4 = (CLIPS_DIR / str(event_id) / "clip.mp4").resolve()
+    if not clip_mp4.is_relative_to(CLIPS_DIR.resolve()) or not clip_mp4.exists():
         raise HTTPException(status_code=404, detail="Video clip not found")
     return FileResponse(str(clip_mp4), media_type="video/mp4")
 

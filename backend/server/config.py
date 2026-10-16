@@ -97,3 +97,23 @@ def get_settings() -> Dict[str, Any]:
         except Exception:
             pass
     return {}
+
+
+def get_default_camera_config(camera_id: str, scene_profile: str = "indoor_premises") -> Dict[str, Any]:
+    tax = get_taxonomy()
+    prof = tax.get_scene_profile(scene_profile)
+    return {
+        "name": f"Camera {camera_id.upper()}",
+        "description": "",
+        "scene_profile": scene_profile,
+        "door_zone": [[180, 240], [420, 240], [420, 480], [180, 480]],
+        "restricted_zones": [],
+        "crowd_threshold": int(prof.get("min_crowd_count", 7)),
+        "crowd_surge_seconds": 1.5,
+        "tailgating_time_window_seconds": 1.8,
+        "person_down_still_seconds": 2.0,
+        "person_down_aspect_ratio_threshold": 1.15,
+        "fighting_overlap_iou": 0.38,
+        "fighting_speed_threshold_pixels_per_sec": 105.0,
+    }
+

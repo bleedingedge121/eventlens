@@ -249,6 +249,7 @@ def _camera_worker_loop(
 
                 cand["frames"] = recent_frames_bytes
                 cand["keyframe_bytes"] = jpeg_buf.tobytes() if ret else None
+                cand["fps"] = getattr(ingest, "native_fps", 25.0) or 25.0
 
                 # Dispatch candidate event to background FIFO queue (eliminates thread stampedes & lock starvation)
                 try:

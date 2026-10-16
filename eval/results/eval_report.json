@@ -1,40 +1,210 @@
 {
+  "evaluated_clips_count": 10,
+  "missing_clips_count": 13,
+  "missing_clips": [
+    "clip_tailgating_01.mp4",
+    "clip_tailgating_02.mp4",
+    "clip_tailgating_03.mp4",
+    "clip_persondown_01.mp4",
+    "clip_persondown_02.mp4",
+    "clip_fighting_01.mp4",
+    "clip_fighting_02.mp4",
+    "clip_crowd_01.mp4",
+    "clip_crowd_02.mp4",
+    "clip_loitering_01.mp4",
+    "clip_normal_01.mp4",
+    "clip_normal_02.mp4",
+    "clip_normal_03.mp4"
+  ],
   "classification": {
     "tailgating": {
-      "precision": 1.0,
-      "recall": 0.667,
-      "f1": 0.8
+      "tp": 0,
+      "fp": 5,
+      "fn": 1,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
     },
     "person_down": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0
+      "tp": 0,
+      "fp": 0,
+      "fn": 3,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
     },
     "fighting": {
-      "precision": 0.75,
-      "recall": 0.75,
-      "f1": 0.75
+      "tp": 0,
+      "fp": 0,
+      "fn": 3,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
     },
     "crowd_incident": {
-      "precision": 0.667,
-      "recall": 1.0,
-      "f1": 0.8
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
     },
     "suspicious_activity": {
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0
+    },
+    "overall": {
+      "tp": 0,
+      "fp": 5,
+      "fn": 9,
       "precision": 0.0,
       "recall": 0.0,
       "f1": 0.0
     }
   },
   "latency": {
-    "median_latency_ms": 338.7,
-    "p95_latency_ms": 419.9,
-    "mean_latency_ms": 345.6
+    "samples": 5,
+    "median_latency_ms": 10.1,
+    "p95_latency_ms": 10.3,
+    "mean_latency_ms": 9.7,
+    "min_latency_ms": 8.5,
+    "max_latency_ms": 10.4
   },
-  "vision_pipeline": {
-    "clips_evaluated": 4,
-    "total_frames_processed": 900,
-    "avg_inference_fps": 93.4,
-    "median_speedup_vs_realtime": 3.15
-  }
+  "evaluated_clips": [
+    {
+      "clip_name": "1.mp4",
+      "true_category": "fighting",
+      "detections_count": 1,
+      "matched": false,
+      "stats": {
+        "processed_frames": 20,
+        "total_frames": 262,
+        "native_fps": 30.0,
+        "inference_fps": 51.2,
+        "wall_time_sec": 0.39
+      }
+    },
+    {
+      "clip_name": "WhatsApp Video 2026-10-16 at 1.29.28 AM.mp4",
+      "true_category": "person_down",
+      "detections_count": 0,
+      "matched": false,
+      "stats": {
+        "processed_frames": 20,
+        "total_frames": 154,
+        "native_fps": 30.0,
+        "inference_fps": 94.1,
+        "wall_time_sec": 0.21
+      }
+    },
+    {
+      "clip_name": "WhatsApp Video 2026-10-16 at 1.29.33 AM.mp4",
+      "true_category": "person_down",
+      "detections_count": 0,
+      "matched": false,
+      "stats": {
+        "processed_frames": 20,
+        "total_frames": 291,
+        "native_fps": 30.0,
+        "inference_fps": 86.3,
+        "wall_time_sec": 0.23
+      }
+    },
+    {
+      "clip_name": "WhatsApp Video 2026-10-16 at 1.29.34 AM.mp4",
+      "true_category": "fighting",
+      "detections_count": 1,
+      "matched": false,
+      "stats": {
+        "processed_frames": 20,
+        "total_frames": 193,
+        "native_fps": 30.0,
+        "inference_fps": 95.8,
+        "wall_time_sec": 0.21
+      }
+    },
+    {
+      "clip_name": "test_tailgating.mp4",
+      "true_category": "tailgating",
+      "detections_count": 0,
+      "matched": false,
+      "stats": {
+        "processed_frames": 20,
+        "total_frames": 80,
+        "native_fps": 10.0,
+        "inference_fps": 88.4,
+        "wall_time_sec": 0.23
+      }
+    },
+    {
+      "clip_name": "test_person_down.mp4",
+      "true_category": "person_down",
+      "detections_count": 1,
+      "matched": false,
+      "stats": {
+        "processed_frames": 20,
+        "total_frames": 80,
+        "native_fps": 10.0,
+        "inference_fps": 91.4,
+        "wall_time_sec": 0.22
+      }
+    },
+    {
+      "clip_name": "test_crowd.mp4",
+      "true_category": "crowd_incident",
+      "detections_count": 1,
+      "matched": false,
+      "stats": {
+        "processed_frames": 20,
+        "total_frames": 80,
+        "native_fps": 10.0,
+        "inference_fps": 91.0,
+        "wall_time_sec": 0.22
+      }
+    },
+    {
+      "clip_name": "test_suspicious.mp4",
+      "true_category": "suspicious_activity",
+      "detections_count": 0,
+      "matched": false,
+      "stats": {
+        "processed_frames": 20,
+        "total_frames": 80,
+        "native_fps": 10.0,
+        "inference_fps": 92.2,
+        "wall_time_sec": 0.22
+      }
+    },
+    {
+      "clip_name": "test_fighting.mp4",
+      "true_category": "fighting",
+      "detections_count": 1,
+      "matched": false,
+      "stats": {
+        "processed_frames": 20,
+        "total_frames": 80,
+        "native_fps": 10.0,
+        "inference_fps": 91.6,
+        "wall_time_sec": 0.22
+      }
+    },
+    {
+      "clip_name": "test_normal.mp4",
+      "true_category": "none",
+      "detections_count": 0,
+      "matched": false,
+      "stats": {
+        "processed_frames": 20,
+        "total_frames": 80,
+        "native_fps": 10.0,
+        "inference_fps": 88.0,
+        "wall_time_sec": 0.23
+      }
+    }
+  ],
+  "is_simulated": false
 }

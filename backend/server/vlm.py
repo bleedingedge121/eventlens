@@ -68,6 +68,20 @@ class VLMClient:
             "model": self._available_model or self.model_name,
         }
 
+    def is_model_available(self) -> bool:
+        """Returns True if Ollama is running and has a vision-capable model."""
+        try:
+            req = urllib.request.Request(f"{self.ollama_host}/api/tags")
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                installed = {m["name"] for m in data.get("models", [])}
+                return any(
+                    self.model_name in m or any(k in m.lower() for k in ["qwen", "gemma", "llava", "vision"])
+                    for m in installed
+                )
+        except Exception:
+            return False
+
     def _resolve_model(self) -> str:
         if self._available_model:
             return self._available_model
@@ -98,11 +112,11 @@ class VLMClient:
         vlm_start_t = time.time()
 
         if not frames_b64:
-            logger.warning(f"[VLM] No frames available for candidate '{category_hint}' on {camera_id} -> dropped (vlm_error)")
+            logger.warning(f"[VLM] No valid frames available for candidate '{category_hint}' on {camera_id} -> dropped (vlm_error)")
             return {
                 "verified": False,
                 "verdict": "error",
-                "rejection_reason": "No frames provided",
+                "rejection_reason": "No valid frames available (missing or corrupt image data)",
                 "category": category_hint,
                 "confidence": 0.0,
                 "summary": "",
@@ -195,9 +209,14 @@ class VLMClient:
                 }
 
             # VERDICT == "yes" -> Event is verified!
-            # Confidence based on affirmative verdict (configurable threshold >= 0.75 default)
             high_thresh = tax.high_confidence_threshold
-            confidence = round(max(high_thresh, min(0.96, 0.88)), 2)
+            raw_conf = parsed.get("confidence")
+            import math
+            if isinstance(raw_conf, (int, float)) and not math.isnan(raw_conf) and not math.isinf(raw_conf):
+                parsed_conf = round(max(0.0, min(1.0, float(raw_conf))), 2)
+                confidence = max(parsed_conf, high_thresh)
+            else:
+                confidence = round(max(high_thresh, min(0.96, 0.88)), 2)
 
             logger.info(
                 f"[VLM] Candidate '{category_hint}' on {camera_id} VERIFIED (verdict=yes, conf={confidence}, {latency_ms}ms): "
@@ -246,6 +265,7 @@ class VLMClient:
             "properties": {
                 "verdict": {"type": "string", "enum": ["yes", "no", "unsure"]},
                 "observation": {"type": "string"},
+                "confidence": {"type": "number"},
                 "tags": {"type": "array", "items": {"type": "string"}},
             },
             "required": ["verdict", "observation"],

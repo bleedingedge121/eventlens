@@ -286,7 +286,9 @@ class TriggerEngine:
                     else:
                         sx, sy = th.prone_start_pos
                         dist = ((cx - sx) ** 2 + (cy - sy) ** 2) ** 0.5
-                        if dist > 25.0:
+                        # Relative to box width or absolute threshold
+                        norm_dist = dist / max(w, 1.0)
+                        if dist > 35.0 or norm_dist > 0.40:
                             # Person is crawling/walking along the floor, not motionless collapse
                             th.prone_start_time = current_time
                             th.prone_start_pos = (cx, cy)
@@ -344,7 +346,11 @@ class TriggerEngine:
                             s2 = (((p2_now[2] - p2_prev[2]) ** 2 + (p2_now[3] - p2_prev[3]) ** 2) ** 0.5) / dt2
                             avg_speed = (s1 + s2) / 2.0
 
-                            if avg_speed >= speed_thresh:
+                            d_now = ((p1_now[2] - p2_now[2]) ** 2 + (p1_now[3] - p2_now[3]) ** 2) ** 0.5
+                            d_prev = ((p1_prev[2] - p2_prev[2]) ** 2 + (p1_prev[3] - p2_prev[3]) ** 2) ** 0.5
+                            rel_speed = abs(d_now - d_prev) / min(dt1, dt2)
+
+                            if avg_speed >= speed_thresh or rel_speed >= (speed_thresh * 0.75):
                                 pair_key = f"fight_{min(t1.track_id, t2.track_id)}_{max(t1.track_id, t2.track_id)}"
                                 if self._can_trigger(pair_key, current_time, cooldown=15.0):
                                     candidates.append({
