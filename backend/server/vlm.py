@@ -49,6 +49,7 @@ class VLMClient:
         self.model_name = model_name or cfg.get("vlm_model", "qwen3-vl:8b")
         self.fallback_model = fallback_model or cfg.get("vlm_fallback_model", "qwen3-vl:8b")
         self.timeout = timeout_seconds or cfg.get("timeout_seconds", 15)
+        self.num_predict = int(cfg.get("num_predict", 350))
         self._available_model: Optional[str] = None
         self._call_lock = threading.Lock()
         self.is_busy: bool = False
@@ -148,7 +149,7 @@ class VLMClient:
                 "{\n"
                 '  "verdict": "yes" | "no" | "unsure",\n'
                 '  "observation": "maximum 20 words describing strictly visible facts",\n'
-                f'  "tags": ["tag"] (choose only from: {json.dumps(allowed_tags)})\n'
+                f'  "tags": [] (empty [] if not detected; choose only from: {json.dumps(allowed_tags)})\n'
                 "}\n"
                 "Do NOT explain. Do NOT output thinking tokens. Valid JSON only:"
             )
@@ -159,8 +160,12 @@ class VLMClient:
 
             # Defensive strip of thinking tokens
             clean_response = re.sub(r"<think>[\s\S]*?</think>", "", raw_response, flags=re.IGNORECASE).strip()
+            if not clean_response and raw_response:
+                clean_response = raw_response
 
             parsed = self._parse_json_response(clean_response)
+            if not parsed and clean_response != raw_response:
+                parsed = self._parse_json_response(raw_response)
             if not parsed or not isinstance(parsed, dict):
                 logger.warning(
                     f"[VLM] Candidate '{category_hint}' on {camera_id} parse failure/empty -> dropped (vlm_error). "
@@ -280,8 +285,7 @@ class VLMClient:
             "options": {
                 "temperature": 0.0,
                 "num_ctx": 2048,
-                "num_predict": 150,
-                "stop": ["<think>", "</think>"],
+                "num_predict": self.num_predict,
             },
         }
 
@@ -301,7 +305,10 @@ class VLMClient:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
-                return body.get("response", "").strip()
+                resp_text = body.get("response", "").strip()
+                if not resp_text and "thinking" in body:
+                    resp_text = body.get("thinking", "").strip()
+                return resp_text
         finally:
             self._call_lock.release()
 

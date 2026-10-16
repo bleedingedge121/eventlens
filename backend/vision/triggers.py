@@ -107,7 +107,7 @@ class TriggerEngine:
 
     def record_vlm_feedback(self, rule_category: str, verdict: str):
         """Records VLM confirmation or rejection. 3 consecutive rejections pauses rule."""
-        if verdict != "yes":
+        if verdict in ("no", "unsure"):
             count = self.consecutive_rejections.get(rule_category, 0) + 1
             self.consecutive_rejections[rule_category] = count
             if count >= 3:
@@ -118,7 +118,7 @@ class TriggerEngine:
                     f"[Triggers] Rule '{rule_category}' on camera '{self.camera_id}' "
                     f"auto-paused for 60s (3 consecutive VLM rejections)."
                 )
-        else:
+        elif verdict == "yes":
             self.consecutive_rejections[rule_category] = 0
             self.paused_rules.pop(rule_category, None)
             self.paused_reasons.pop(rule_category, None)
