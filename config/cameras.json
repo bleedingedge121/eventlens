@@ -25,7 +25,19 @@
     "person_down_aspect_ratio_threshold": 0.70,
     "person_down_still_seconds": 0.8,
     "fighting_overlap_iou": 0.38,
-    "fighting_speed_threshold_pixels_per_sec": 105.0
+    "fighting_speed_threshold_pixels_per_sec": 105.0,
+    "hazard_zones": [
+      {
+        "name": "Atrium Balcony Railing",
+        "polygon": [
+          [50, 20],
+          [590, 20],
+          [590, 110],
+          [50, 110]
+        ],
+        "max_dwell_seconds": 2.5
+      }
+    ]
   },
   "cam2": {
     "name": "Office Floor Corridor",
@@ -53,6 +65,18 @@
     "person_down_aspect_ratio_threshold": 0.70,
     "person_down_still_seconds": 0.8,
     "fighting_overlap_iou": 0.38,
-    "fighting_speed_threshold_pixels_per_sec": 105.0
+    "fighting_speed_threshold_pixels_per_sec": 105.0,
+    "hazard_zones": [
+      {
+        "name": "Stairwell Drop Ledge",
+        "polygon": [
+          [400, 20],
+          [620, 20],
+          [620, 120],
+          [400, 120]
+        ],
+        "max_dwell_seconds": 2.5
+      }
+    ]
   }
 }

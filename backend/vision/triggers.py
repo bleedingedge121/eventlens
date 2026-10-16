@@ -60,10 +60,12 @@ class TrackHistory:
         # stores (timestamp_sec, [x1, y1, x2, y2], center_x, center_y)
         self.positions: deque = deque(maxlen=60)
         self.zone_entry_times: Dict[str, float] = {}
+        self.hazard_entry_times: Dict[str, float] = {}
         self.door_crossing_time: Optional[float] = None
         self.was_outside_door: bool = False
         self.down_start_time: Optional[float] = None
         self.down_start_pos: Optional[Tuple[float, float]] = None
+        self.max_height: float = 0.0
         self.last_seen: float = time.time()
 
 
@@ -104,6 +106,9 @@ class TriggerEngine:
 
             th = self.tracks[tid]
             th.positions.append((current_time, box, cx, cy))
+            h = box[3] - box[1]
+            if h > th.max_height:
+                th.max_height = h
             th.last_seen = current_time
 
         # Remove stale tracks older than 8 seconds
@@ -135,16 +140,18 @@ class TriggerEngine:
 
         for tid in active_ids:
             th = self.tracks[tid]
-            if len(th.positions) < 2:
+            if not th.positions:
                 continue
 
             latest_time, box, cx, cy = th.positions[-1]
             w = box[2] - box[0]
             h = box[3] - box[1]
 
-            # Aspect ratio check: in angled surveillance CCTV, horizontal or collapsed person has w/h >= 0.70
-            is_seated_webcam = (box[1] < 80 and h > 180 and (w / h) < 0.85)
-            is_prone = (h > 0 and (w / h) >= aspect_thresh and not is_seated_webcam)
+            # Dual check: (1) Height collapse relative to peak standing height, OR (2) aspect ratio w/h >= threshold
+            height_collapsed = bool(th.max_height >= 55.0 and (h / th.max_height) <= 0.60)
+            aspect_prone = bool(h > 0 and (w / h) >= aspect_thresh)
+            is_seated_webcam = bool(box[1] < 80 and h > 180 and (w / h) < 0.85)
+            is_prone = bool((height_collapsed or aspect_prone) and not is_seated_webcam)
 
             if is_prone:
                 # Update or register spatial prone region
@@ -241,6 +248,26 @@ class TriggerEngine:
                             })
                 else:
                     th.zone_entry_times.pop(zname, None)
+
+            # Check Hazard Zones (Suicide Risk / Fall from Height)
+            hazard_zones = self.config.get("hazard_zones", [])
+            for hzone in hazard_zones:
+                zname = hzone.get("name", "hazard")
+                poly = hzone.get("polygon", [])
+                max_dwell = hzone.get("max_dwell_seconds", 2.0)
+                if poly and point_in_polygon(cx, cy, poly):
+                    if zname not in th.hazard_entry_times:
+                        th.hazard_entry_times[zname] = current_time
+                    elif current_time - th.hazard_entry_times[zname] >= max_dwell:
+                        if self._can_trigger(f"suicide_{zname}_{tid}", current_time, cooldown=15.0):
+                            candidates.append({
+                                "camera_id": self.camera_id,
+                                "category_hint": "suicide_risk",
+                                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                                "track_ids": [tid],
+                            })
+                else:
+                    th.hazard_entry_times.pop(zname, None)
 
         # 4. Check Fighting (Inter-track overlap & kinetic movement)
         active_list = list(active_ids)

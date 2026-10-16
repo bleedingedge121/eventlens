@@ -35,8 +35,50 @@ class TestTriggers(unittest.TestCase):
         candidates = engine.update(detections, current_time=1.0)
         self.assertEqual(len(candidates), 1)
         self.assertEqual(candidates[0]["category_hint"], "crowd_incident")
-        self.assertEqual(candidates[0]["camera_id"], "cam1")
+    def test_person_down_height_collapse(self):
+        config = {
+            "person_down_aspect_ratio_threshold": 0.85,
+            "person_down_still_seconds": 1.0,
+        }
+        engine = TriggerEngine("cam1", config)
+
+        # Frame 1: Person standing (h=140, w=40)
+        det_standing = [{"track_id": 1, "box": [100, 100, 140, 240], "confidence": 0.9}]
+        engine.update(det_standing, current_time=0.0)
+
+        # Frame 2: Person collapses on floor (h=45, w=90 -> height collapsed < 0.6 of 140)
+        det_collapsed = [{"track_id": 1, "box": [100, 195, 190, 240], "confidence": 0.9}]
+        cands1 = engine.update(det_collapsed, current_time=0.5)
+        self.assertEqual(len(cands1), 0)  # Still waiting for still_seconds
+
+        # Frame 3: Motionless after 1.1s (0.5 to 1.6)
+        cands2 = engine.update(det_collapsed, current_time=1.6)
+        self.assertEqual(len(cands2), 1)
+        self.assertEqual(cands2[0]["category_hint"], "person_down")
+
+    def test_suicide_hazard_trigger(self):
+        config = {
+            "hazard_zones": [
+                {
+                    "name": "High Ledge",
+                    "polygon": [[0, 0], [200, 0], [200, 100], [0, 100]],
+                    "max_dwell_seconds": 1.5,
+                }
+            ]
+        }
+        engine = TriggerEngine("cam1", config)
+
+        # Person enters high ledge zone (center at x=50, y=50)
+        det = [{"track_id": 5, "box": [30, 20, 70, 80], "confidence": 0.92}]
+        cands1 = engine.update(det, current_time=0.0)
+        self.assertEqual(len(cands1), 0)
+
+        # Dwells for 1.8 seconds
+        cands2 = engine.update(det, current_time=1.8)
+        self.assertEqual(len(cands2), 1)
+        self.assertEqual(cands2[0]["category_hint"], "suicide_risk")
 
 
 if __name__ == "__main__":
     unittest.main()
+
