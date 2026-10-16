@@ -118,7 +118,7 @@ events (
   id INTEGER PRIMARY KEY,
   timestamp TEXT,        -- Format: YYYY-MM-DDTHH:MM:SS
   camera_id TEXT,        -- e.g. 'cam1', 'cam2'
-  category TEXT,         -- one of: 'person_down', 'fighting', 'tailgating', 'crowd_incident', 'suspicious_activity'
+  category TEXT,         -- one of: 'person_down', 'fighting', 'tailgating', 'crowd_incident', 'suspicious_activity', 'suicide_risk'
   confidence REAL,       -- 0.0 to 1.0
   summary TEXT,          -- description text
   track_ids TEXT,        -- JSON array of person IDs e.g. '[1, 2]'

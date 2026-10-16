@@ -4,6 +4,9 @@
 (() => {
   // ============ OPERATIONAL STATE ============
   let isQuerying = false;
+  let copySeq = 0;
+  const QUERY_TIMEOUT_MS = 60000;
+  const MAX_HISTORY = 20;
   let sessionHistory = [];
   let cachedEventsMap = new Map();
 
@@ -13,7 +16,8 @@
     person_down: { label: 'Person Down', badgeClass: 'badge--person_down' },
     fighting: { label: 'Fighting', badgeClass: 'badge--fighting' },
     crowd_incident: { label: 'Crowd', badgeClass: 'badge--crowd_incident' },
-    suspicious_activity: { label: 'Suspicious', badgeClass: 'badge--suspicious_activity' }
+    suspicious_activity: { label: 'Suspicious', badgeClass: 'badge--suspicious_activity' },
+    suicide_risk: { label: 'Suicide / Fall Hazard', badgeClass: 'badge--suicide_risk' }
   };
 
   // ============ DOM REFERENCES ============
@@ -54,13 +58,19 @@
     });
   };
 
+  // Tokenise the RAW sql, escape each piece once. (Regex-over-escaped-HTML corrupted entities like &#39;.)
+  const SQL_TOKEN = /('(?:[^']|'')*')|\b(SELECT|FROM|WHERE|AND|OR|ORDER BY|GROUP BY|LIMIT|DESC|ASC|LIKE|BETWEEN|IN|AS|JOIN|ON|COUNT)\b|\b(events)\b|\b(\d+(?:\.\d+)?)\b/gi;
   const highlightSql = (sql) => {
     if (!sql) return '';
-    return escapeHtml(sql)
-      .replace(/\b(SELECT|FROM|WHERE|AND|OR|ORDER BY|GROUP BY|LIMIT|DESC|ASC|LIKE|BETWEEN|IN|AS|JOIN|ON|COUNT)\b/gi, '<span class="sql-kw">$1</span>')
-      .replace(/\b(events)\b/gi, '<span class="sql-tbl">$1</span>')
-      .replace(/(&#39;.*?&#39;)/g, '<span class="sql-str">$1</span>')
-      .replace(/\b(\d+)\b/g, '<span class="sql-num">$1</span>');
+    const raw = String(sql);
+    let out = '', last = 0;
+    for (const m of raw.matchAll(SQL_TOKEN)) {
+      const [tok, str, kw, tbl] = m;
+      const cls = str ? 'sql-str' : kw ? 'sql-kw' : tbl ? 'sql-tbl' : 'sql-num';
+      out += `${escapeHtml(raw.slice(last, m.index))}<span class="${cls}">${escapeHtml(tok)}</span>`;
+      last = m.index + tok.length;
+    }
+    return out + escapeHtml(raw.slice(last));
   };
 
   const formatTimestamp = (iso) => {
@@ -147,6 +157,7 @@
   function createLoadingMessage() {
     const row = document.createElement('div');
     row.className = 'msg-row msg-row--assistant loading-row';
+    row.setAttribute('role', 'status');
     row.innerHTML = `
       <div class="msg-avatar msg-avatar--assistant" aria-hidden="true">AI</div>
       <div class="msg-bubble">
@@ -174,12 +185,12 @@
         const keyframeSrc = ev.keyframe_url || `/frames/${ev.id}.jpg`;
         return `
           <div class="chat-event-tile" data-event-id="${ev.id}" tabindex="0" role="button" aria-label="View incident ${ev.id}">
-            <img class="chat-event-thumb" src="${keyframeSrc}" alt="Event keyframe ${ev.id}" loading="lazy"
+            <img class="chat-event-thumb" src="${escapeHtml(keyframeSrc)}" alt="Event keyframe ${ev.id}" loading="lazy"
               onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'68\\' height=\\'48\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%23080c14\\'/></svg>'">
             <div class="chat-event-info">
               <div class="chat-event-title-line">
                 <span class="badge ${meta.badgeClass}">${meta.label}</span>
-                <span class="event-camera">${ev.camera_id}</span>
+                <span class="event-camera">${escapeHtml(ev.camera_id)}</span>
                 <span class="event-time">${formatTime(ev.timestamp)}</span>
               </div>
               <div class="chat-event-summary-text">${escapeHtml(ev.summary)}</div>
@@ -199,7 +210,7 @@
         </div>`;
     }
 
-    const uniqueCopyId = `copy-sql-${Date.now()}`;
+    const uniqueCopyId = `copy-sql-${++copySeq}`;
 
     row.innerHTML = `
       <div class="msg-avatar msg-avatar--assistant" aria-hidden="true">AI</div>
@@ -277,6 +288,7 @@
     // Add to session history
     if (!sessionHistory.includes(q)) {
       sessionHistory.unshift(q);
+      sessionHistory.length = Math.min(sessionHistory.length, MAX_HISTORY);
       updateHistoryUI();
     }
 
@@ -287,7 +299,8 @@
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q })
+        body: JSON.stringify({ question: q }),
+        signal: AbortSignal.timeout(QUERY_TIMEOUT_MS)
       });
 
       loadingElem.remove();
@@ -302,7 +315,11 @@
     } catch (err) {
       loadingElem.remove();
       console.error('[EventLens Chat] Query failed:', err);
-      appendErrorMessage(err.message || 'Unable to connect to local query engine.');
+      els.chatInput.value ||= q; // never lose the operator's question on failure
+      autoResizeTextarea();
+      appendErrorMessage(err.name === 'TimeoutError'
+        ? 'The query engine took longer than 60 seconds. Try a narrower question.'
+        : err.message || 'Unable to connect to local query engine.');
     } finally {
       isQuerying = false;
       els.chatSubmit.disabled = false;
@@ -338,6 +355,9 @@
 
   // ============ INITIALIZE ============
   function init() {
+    els.chatMessages.setAttribute('role', 'log');
+    els.chatMessages.setAttribute('aria-live', 'polite');
+
     // Form submission
     els.chatForm.addEventListener('submit', e => {
       e.preventDefault();
@@ -349,7 +369,7 @@
 
     // Enter to submit, Shift+Enter for newline
     els.chatInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
         els.chatForm.dispatchEvent(new Event('submit'));
       }
@@ -376,6 +396,8 @@
           </div>
         </div>`;
       cachedEventsMap.clear();
+      sessionHistory = [];
+      updateHistoryUI();
       els.chatInput.focus();
     });
 

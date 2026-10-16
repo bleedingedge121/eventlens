@@ -4,7 +4,8 @@
     "vlm_model": "qwen3-vl:8b",
     "vlm_fallback_model": "qwen3-vl:8b",
     "chat_model": "Hermes-4-14B:latest",
-    "timeout_seconds": 60
+    "timeout_seconds": 15,
+    "num_predict": 280
   },
   "vision": {
     "yolo_model": "yolo11s.pt",

@@ -1,0 +1,61 @@
+import unittest
+from fastapi.testclient import TestClient
+from backend.server.main import app
+
+class TestCameraAPI(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+
+    def test_get_cameras_config(self):
+        res = self.client.get("/api/cameras/config")
+        self.assertEqual(res.status_code, 200)
+        data = res.json().get("cameras", {})
+        self.assertIn("cam1", data)
+        self.assertIn("cam2", data)
+
+    def test_add_and_delete_camera(self):
+        # 1. Add camera
+        payload = {
+            "camera_id": "test_cam_unit",
+            "name": "Unit Test Camera",
+            "source": "data/videos/test_tailgating.mp4",
+            "camera_type": "turnstile"
+        }
+        res = self.client.post("/api/cameras", json=payload)
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json().get("ok"))
+
+        # Verify it shows in config
+        res_cfg = self.client.get("/api/cameras/config")
+        self.assertIn("test_cam_unit", res_cfg.json().get("cameras", {}))
+
+        # 2. Delete camera
+        res_del = self.client.delete("/api/cameras/test_cam_unit")
+        self.assertEqual(res_del.status_code, 200)
+        self.assertTrue(res_del.json().get("ok"))
+
+        # Verify it is removed
+        res_cfg2 = self.client.get("/api/cameras/config")
+        self.assertNotIn("test_cam_unit", res_cfg2.json().get("cameras", {}))
+
+    def test_seek_and_playback_endpoints(self):
+        # Even if camera is not running, endpoints return gracefully with status dict
+        res_seek = self.client.post("/api/cameras/cam1/seek", json={"ratio": 0.5})
+        self.assertEqual(res_seek.status_code, 200)
+        self.assertIn("ok", res_seek.json())
+        self.assertIn("success", res_seek.json())
+
+        res_play = self.client.post("/api/cameras/cam1/playback", json={"paused": True})
+        self.assertEqual(res_play.status_code, 200)
+        self.assertIn("ok", res_play.json())
+        self.assertIn("success", res_play.json())
+
+    def test_get_devices(self):
+        res = self.client.get("/api/devices")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIn("devices", data)
+        self.assertIsInstance(data["devices"], list)
+
+if __name__ == "__main__":
+    unittest.main()

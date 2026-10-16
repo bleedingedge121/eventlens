@@ -26,6 +26,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import numpy as np
+
 from backend.server.chat import ChatEngine
 from backend.server.db import Database
 from backend.server.vlm import VLMClient
@@ -35,6 +37,8 @@ from backend.vision.pipeline import (
     stop_camera,
     get_camera_status,
     list_active_cameras,
+    seek_camera,
+    set_camera_playback,
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -72,6 +76,27 @@ MIN_EVENT_CONFIDENCE = 0.50
 class SourceRequest(BaseModel):
     camera_id: str
     source: str
+
+
+class SeekRequest(BaseModel):
+    frame_idx: Optional[int] = None
+    ratio: Optional[float] = None
+
+
+class PlaybackRequest(BaseModel):
+    paused: bool
+
+
+class CameraCreateRequest(BaseModel):
+    camera_id: str
+    name: str
+    description: Optional[str] = ""
+    source: Optional[str] = None
+    door_zone: Optional[list] = None
+    restricted_zones: Optional[list] = None
+    hazard_zones: Optional[list] = None
+    crowd_threshold: Optional[int] = 7
+    auto_start: bool = True
 
 
 class ChatRequest(BaseModel):
@@ -136,9 +161,32 @@ def on_candidate_event(candidate: dict):
         if clip_frames:
             clip_dir = CLIPS_DIR / str(event_id)
             clip_dir.mkdir(parents=True, exist_ok=True)
+            decoded_images = []
             for i, frame_bytes in enumerate(clip_frames):
                 if isinstance(frame_bytes, bytes):
                     (clip_dir / f"frame_{i:02d}.jpg").write_bytes(frame_bytes)
+                    try:
+                        nparr = np.frombuffer(frame_bytes, np.uint8)
+                        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        if img is not None:
+                            decoded_images.append(img)
+                    except Exception:
+                        pass
+
+            # Write high-compatibility MP4 video clip
+            if decoded_images:
+                try:
+                    ch, cw = decoded_images[0].shape[:2]
+                    clip_mp4_path = clip_dir / "clip.mp4"
+                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                    out = cv2.VideoWriter(str(clip_mp4_path), fourcc, 10.0, (cw, ch))
+                    for c_img in decoded_images:
+                        out.write(c_img)
+                    out.release()
+                    logger.info(f"[Server] Generated MP4 video clip: {clip_mp4_path}")
+                except Exception as e:
+                    logger.warning(f"[Server] MP4 clip generation error: {e}")
+
             logger.info(f"[Server] Saved {len(clip_frames)} clip frames to {clip_dir}")
 
 
@@ -237,6 +285,81 @@ def get_cameras():
     return {"cameras": cams}
 
 
+@app.get("/api/cameras/config")
+def get_cameras_config():
+    """Returns all camera definitions from config/cameras.json."""
+    cam_file = BASE_DIR / "config" / "cameras.json"
+    if cam_file.exists():
+        try:
+            with open(cam_file, "r", encoding="utf-8") as f:
+                return {"cameras": json.load(f)}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    return {"cameras": {}}
+
+
+@app.post("/api/cameras")
+def create_camera(req: CameraCreateRequest):
+    """Registers a new camera, updates config/cameras.json, and optionally starts ingestion."""
+    cam_id = req.camera_id.strip().lower()
+    if not cam_id:
+        raise HTTPException(status_code=400, detail="camera_id is required")
+
+    cam_file = BASE_DIR / "config" / "cameras.json"
+    configs = {}
+    if cam_file.exists():
+        try:
+            with open(cam_file, "r", encoding="utf-8") as f:
+                configs = json.load(f)
+        except Exception:
+            configs = {}
+
+    cam_dict = {
+        "name": req.name.strip() or f"Camera {cam_id.upper()}",
+        "description": req.description.strip(),
+        "door_zone": req.door_zone or [[180, 240], [420, 240], [420, 480], [180, 480]],
+        "restricted_zones": req.restricted_zones or [],
+        "hazard_zones": req.hazard_zones or [],
+        "crowd_threshold": req.crowd_threshold or 7,
+        "tailgating_time_window_seconds": 1.8,
+        "person_down_aspect_ratio_threshold": 0.70,
+        "person_down_still_seconds": 0.8,
+        "fighting_overlap_iou": 0.38,
+        "fighting_speed_threshold_pixels_per_sec": 105.0,
+    }
+    configs[cam_id] = cam_dict
+
+    try:
+        with open(cam_file, "w", encoding="utf-8") as f:
+            json.dump(configs, f, indent=2)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save camera config: {e}")
+
+    started = False
+    if req.auto_start and req.source:
+        started = start_camera(cam_id, req.source, on_candidate=on_candidate_event)
+
+    return {"success": True, "ok": True, "camera_id": cam_id, "camera": cam_dict, "started": started}
+
+
+@app.delete("/api/cameras/{camera_id}")
+def delete_camera(camera_id: str):
+    """Stops worker and removes camera from config/cameras.json."""
+    stop_camera(camera_id)
+    cam_file = BASE_DIR / "config" / "cameras.json"
+    if cam_file.exists():
+        try:
+            with open(cam_file, "r", encoding="utf-8") as f:
+                configs = json.load(f)
+            if camera_id in configs:
+                del configs[camera_id]
+                with open(cam_file, "w", encoding="utf-8") as f:
+                    json.dump(configs, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Error removing camera {camera_id} from config: {e}")
+    return {"success": True, "ok": True, "camera_id": camera_id}
+
+
 @app.get("/api/cameras/{camera_id}")
 def get_camera(camera_id: str):
     """Returns telemetry for a specific camera."""
@@ -246,29 +369,33 @@ def get_camera(camera_id: str):
 
 
 @app.get("/api/devices")
-def get_available_devices():
-    """Detects available local webcams and USB video capture devices."""
+async def get_available_devices():
+    """Detects available local webcams and USB video capture devices asynchronously."""
     import platform
-    devices = []
-    # Test index 0 and 1
-    for idx in range(2):
-        try:
-            backend = cv2.CAP_DSHOW if platform.system() == "Windows" else cv2.CAP_ANY
-            cap = cv2.VideoCapture(idx, backend)
-            if cap.isOpened():
-                ret, _ = cap.read()
-                if ret:
-                    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    devices.append({
-                        "index": str(idx),
-                        "name": f"Live Camera #{idx} ({w}x{h})",
-                        "resolution": f"{w}x{h}",
-                        "ready": True,
-                    })
-                cap.release()
-        except Exception:
-            pass
+
+    def _probe_devices():
+        devs = []
+        for idx in range(2):
+            try:
+                backend = cv2.CAP_DSHOW if platform.system() == "Windows" else cv2.CAP_ANY
+                cap = cv2.VideoCapture(idx, backend)
+                if cap.isOpened():
+                    ret, _ = cap.read()
+                    if ret:
+                        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        devs.append({
+                            "index": str(idx),
+                            "name": f"Live Camera #{idx} ({w}x{h})",
+                            "resolution": f"{w}x{h}",
+                            "ready": True,
+                        })
+                    cap.release()
+            except Exception:
+                pass
+        return devs
+
+    devices = await asyncio.to_thread(_probe_devices)
     return {"devices": devices}
 
 
@@ -337,6 +464,29 @@ def get_event_clips(event_id: int):
         "frames": [f"/clips/{event_id}/{f}" for f in frames],
         "count": len(frames),
     }
+
+
+@app.get("/api/clips/{event_id}/video")
+def get_event_video_clip(event_id: int):
+    """Returns the recorded MP4 event clip if available."""
+    clip_mp4 = CLIPS_DIR / str(event_id) / "clip.mp4"
+    if not clip_mp4.exists():
+        raise HTTPException(status_code=404, detail="Video clip not found")
+    return FileResponse(str(clip_mp4), media_type="video/mp4")
+
+
+@app.post("/api/cameras/{camera_id}/seek")
+def post_seek_camera(camera_id: str, req: SeekRequest):
+    """Seeks the video ingest playhead to a frame number or ratio."""
+    success = seek_camera(camera_id, frame_idx=req.frame_idx, ratio=req.ratio)
+    return {"success": success, "ok": success, "camera_id": camera_id}
+
+
+@app.post("/api/cameras/{camera_id}/playback")
+def post_camera_playback(camera_id: str, req: PlaybackRequest):
+    """Controls play/pause status of camera stream."""
+    success = set_camera_playback(camera_id, paused=req.paused)
+    return {"success": success, "ok": success, "camera_id": camera_id, "paused": req.paused}
 
 
 # Mount frontend files

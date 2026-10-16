@@ -133,8 +133,12 @@ def _camera_worker_loop(
             if stop_event.is_set() or not _RUNNING_FLAGS.get(camera_id, False):
                 break
 
-            # 1. Run YOLOv11 + ByteTrack
-            detections, annotated_frame = tracker.track(raw_frame)
+            # 1. Run YOLOv11 + ByteTrack with frame index and PTS HUD
+            detections, annotated_frame = tracker.track(
+                raw_frame,
+                frame_idx=ingest.current_frame_idx,
+                total_frames=ingest.total_frames,
+            )
 
             # 2. Add real-time tactical surveillance HUD overlay to the annotated frame
             h, w = annotated_frame.shape[:2]
@@ -151,6 +155,11 @@ def _camera_worker_loop(
                         _CAMERA_METRICS[camera_id]["processed_frames"] += frames_counted
                         _CAMERA_METRICS[camera_id]["active_tracks"] = len(detections)
                         _CAMERA_METRICS[camera_id]["last_active"] = now
+                        _CAMERA_METRICS[camera_id]["frame_idx"] = ingest.current_frame_idx
+                        _CAMERA_METRICS[camera_id]["total_frames"] = ingest.total_frames
+                        _CAMERA_METRICS[camera_id]["is_paused"] = ingest.is_paused
+                        _CAMERA_METRICS[camera_id]["pts_sec"] = round(ingest.current_frame_idx / max(1.0, ingest.native_fps), 2)
+                        _CAMERA_METRICS[camera_id]["progress_ratio"] = round(ingest.current_frame_idx / max(1, ingest.total_frames), 3) if ingest.total_frames > 0 else 0.0
                 frames_counted = 0
 
             # Top Camera Header
@@ -273,7 +282,33 @@ def get_camera_status(camera_id: str) -> dict:
             "active_tracks": metrics.get("active_tracks", 0),
             "source": metrics.get("source", "unassigned"),
             "vlm_activity": vlm_act,
+            "frame_idx": metrics.get("frame_idx", 0),
+            "total_frames": metrics.get("total_frames", 0),
+            "is_paused": metrics.get("is_paused", False),
+            "pts_sec": metrics.get("pts_sec", 0.0),
+            "progress_ratio": metrics.get("progress_ratio", 0.0),
         }
+
+
+def seek_camera(camera_id: str, frame_idx: Optional[int] = None, ratio: Optional[float] = None) -> bool:
+    """Seeks the video ingest playback head for a camera."""
+    with _LOCK:
+        ingest = _INGEST_ENGINES.get(camera_id)
+    if ingest is not None:
+        if frame_idx is not None:
+            return ingest.seek(frame_idx)
+        elif ratio is not None:
+            return ingest.seek_ratio(ratio)
+    return False
+
+
+def set_camera_playback(camera_id: str, paused: bool) -> bool:
+    """Toggles pause/playback for a camera."""
+    with _LOCK:
+        ingest = _INGEST_ENGINES.get(camera_id)
+    if ingest is not None:
+        return ingest.set_paused(paused)
+    return False
 
 
 def list_active_cameras() -> List[dict]:

@@ -67,6 +67,14 @@ class VideoIngest:
         self._consecutive_failures: int = 0
         self._is_connected: bool = False
 
+        # Playback seek & NVR scrubbing state
+        from collections import deque
+        self.total_frames: int = 0
+        self.current_frame_idx: int = 0
+        self.is_paused: bool = False
+        self._seek_requested: Optional[int] = None
+        self.rolling_buffer: deque = deque(maxlen=300)  # (timestamp, frame_idx, frame)
+
         self._start_capture()
 
     def _open_capture(self) -> Optional[cv2.VideoCapture]:
@@ -120,6 +128,9 @@ class VideoIngest:
                         self.native_fps = float(raw_fps)
                         self.frame_interval = 1.0 / self.native_fps
                         logger.info(f"[VideoIngest] Video file {resolved_path.name} loaded @ {self.native_fps:.1f} FPS")
+                    total_f = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+                    if total_f and total_f > 0:
+                        self.total_frames = int(total_f)
 
             if cap is not None and cap.isOpened():
                 self._is_connected = True
@@ -198,6 +209,25 @@ class VideoIngest:
         fps_counter = 0
 
         while self._running:
+            # Handle seeking request from NVR scrubber
+            if self._seek_requested is not None:
+                with self._frame_lock:
+                    target_f = self._seek_requested
+                    self._seek_requested = None
+                if self._is_file and self.cap is not None:
+                    clamped_f = max(0, min(max(1, self.total_frames) - 1, target_f))
+                    self.cap.set(cv2.CAP_PROP_POS_FRAMES, clamped_f)
+                    self.current_frame_idx = clamped_f
+
+            # Handle pause state (continue streaming the static paused frame)
+            if self.is_paused:
+                time.sleep(0.04)
+                with self._frame_lock:
+                    cached_f = self._latest_frame.copy() if self._latest_frame is not None else None
+                if cached_f is not None:
+                    yield time.time(), cached_f
+                continue
+
             if self._is_file:
                 # Video file: Read sequentially frame-by-frame with zero frame drops
                 if self.cap is None or not self.cap.isOpened():
@@ -233,6 +263,14 @@ class VideoIngest:
                     self._latest_timestamp = now
                     self._frames_captured += 1
                     self._is_connected = True
+                    if self.cap is not None:
+                        try:
+                            self.current_frame_idx = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
+                        except Exception:
+                            self.current_frame_idx = self._frames_captured
+                    else:
+                        self.current_frame_idx = self._frames_captured
+                    self.rolling_buffer.append((now, self.current_frame_idx, frame.copy()))
 
                 fps_counter += 1
                 if now - fps_calc_time >= 1.0:
@@ -275,6 +313,23 @@ class VideoIngest:
         """Instantly fetches the most recently captured raw frame without waiting."""
         with self._frame_lock:
             return self._latest_frame.copy() if self._latest_frame is not None else None
+
+    def seek(self, frame_idx: int) -> bool:
+        """Requests playback head seek to target frame index."""
+        with self._frame_lock:
+            self._seek_requested = max(0, frame_idx)
+            return True
+
+    def seek_ratio(self, ratio: float) -> bool:
+        """Seeks playback head using proportional ratio (0.0 to 1.0)."""
+        target = int(max(0.0, min(1.0, ratio)) * max(1, self.total_frames))
+        return self.seek(target)
+
+    def set_paused(self, paused: bool) -> bool:
+        """Pauses or resumes video stream ingestion."""
+        with self._frame_lock:
+            self.is_paused = bool(paused)
+            return True
 
     @property
     def is_connected(self) -> bool:

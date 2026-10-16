@@ -7,13 +7,20 @@ export default defineConfig(({ mode }) => {
   return {
     root: '.',
     publicDir: false,
+    build: {
+      rollupOptions: {
+        // multi-page: without this, `vite build` silently drops chat.html
+        input: { main: 'index.html', chat: 'chat.html' }
+      }
+    },
     server: {
       port: 5173,
       host: true,
       proxy: {
         '/api': backendTarget,
         '/stream': backendTarget,
-        '/frames': backendTarget
+        '/frames': backendTarget,
+        '/clips': backendTarget
       }
     }
   }

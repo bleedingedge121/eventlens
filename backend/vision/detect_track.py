@@ -210,8 +210,13 @@ class DetectorTracker:
                 boxes.append([float(bx), float(by), float(bx + bw), float(by + bh)])
         return boxes
 
-    def track(self, frame: np.ndarray) -> Tuple[List[Dict[str, Any]], np.ndarray]:
-        """Runs person tracking on a frame.
+    def track(
+        self,
+        frame: np.ndarray,
+        frame_idx: int = 0,
+        total_frames: int = 0,
+    ) -> Tuple[List[Dict[str, Any]], np.ndarray]:
+        """Runs person tracking on a frame with tactical HUD and optional frame index tracking.
 
         Returns:
             (detections, annotated_frame)
@@ -224,7 +229,7 @@ class DetectorTracker:
         annotated_frame = frame.copy()
         detections: List[Dict[str, Any]] = []
 
-        # 1. Run Ultralytics YOLOv11 + ByteTrack
+        # 1. Run Ultralytics YOLOv11 + ByteTrack (with FP16 Tensor Core acceleration on CUDA)
         if self.model is not None:
             try:
                 results = self.model.track(
@@ -289,5 +294,26 @@ class DetectorTracker:
             1,
             cv2.LINE_AA,
         )
+
+        # 5. Draw Tactical Frame Counter & Progress HUD (Upper Right)
+        if frame_idx > 0 or total_frames > 0:
+            pts_sec = frame_idx / 25.0
+            frame_text = f"FRAME #{frame_idx:05d} | PTS {int(pts_sec//60):02d}:{int(pts_sec%60):02d}"
+            if total_frames > 0:
+                prog = int(min(100.0, (frame_idx / total_frames) * 100))
+                frame_text += f" [{prog}%]"
+            (ftw, fth), _ = cv2.getTextSize(frame_text, cv2.FONT_HERSHEY_SIMPLEX, 0.40, 1)
+            cv2.rectangle(annotated_frame, (w - ftw - 20, 10), (w - 10, 30), (11, 17, 28), -1)
+            cv2.rectangle(annotated_frame, (w - ftw - 20, 10), (w - 10, 30), (56, 189, 248), 1)
+            cv2.putText(
+                annotated_frame,
+                frame_text,
+                (w - ftw - 15, 24),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.40,
+                (56, 189, 248),
+                1,
+                cv2.LINE_AA,
+            )
 
         return detections, annotated_frame

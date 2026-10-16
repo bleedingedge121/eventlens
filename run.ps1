@@ -77,6 +77,9 @@ function Run-Native {
     if (-not (Test-Path "data\frames")) {
         New-Item -ItemType Directory -Force -Path "data\frames" | Out-Null
     }
+    if (-not (Test-Path "data\clips")) {
+        New-Item -ItemType Directory -Force -Path "data\clips" | Out-Null
+    }
 
     if (-not (Test-Path "data\events.db")) {
         Write-Host "[!] Database 'data\events.db' not found. Seeding initial benchmark events..." -ForegroundColor Yellow
