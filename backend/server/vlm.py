@@ -223,6 +223,7 @@ class VLMClient:
             "images": images_b64[:1],  # Send 1 keyframe for fast, deterministic inference
             "format": "json",
             "stream": False,
+            "keep_alive": -1,  # Keep model permanently hot in GPU VRAM to prevent cold reloads
             "options": {
                 "temperature": 0.1,
                 "num_predict": num_predict,  # Focused token budget ensuring thinking + JSON completes
