@@ -99,7 +99,7 @@
           </svg>
         </div>
         <span class="telemetry-value" id="stat-latency">— ms</span>
-        <span class="telemetry-detail">Trigger → VLM classification</span>
+        <span class="telemetry-detail" id="stat-latency-detail">p50: <span id="stat-latency-p50">—</span> <small style="opacity:0.75; margin-left:4px;">(p95: <span id="stat-latency-p95">—</span>)</small></span>
       </div>
 
       <div class="telemetry-card">
@@ -111,7 +111,7 @@
           </svg>
         </div>
         <span class="telemetry-value" id="stat-total">—</span>
-        <span class="telemetry-detail">SQLite audit database entries</span>
+        <span class="telemetry-detail">VLM-verified security events</span>
       </div>
 
       <div class="telemetry-card telemetry-card--accent">
@@ -200,9 +200,11 @@
           <div class="hud" aria-hidden="true">
             <span class="hud-pill hud-pill--rec"><span class="rec-dot"></span>REC</span>
             <span class="hud-pill" id="hud-camera">CAM: 1</span>
+            <span class="hud-pill" id="hud-profile" style="color:var(--accent-cyan);">INDOOR</span>
             <span class="hud-pill" id="hud-fps">— FPS</span>
             <span class="hud-pill" id="hud-time">00:00:00</span>
             <span class="hud-pill hud-pill--ai" id="hud-ai"><span class="ai-dot"></span><span id="hud-ai-text">AI SCANNING</span></span>
+            <span class="hud-pill" id="hud-paused-badge" style="display:none; color:#f59e0b; border-color:rgba(245,158,11,0.4); background:rgba(245,158,11,0.1);">auto-paused: low verification rate</span>
           </div>
 
           <!-- Viewport Controls -->
@@ -219,18 +221,6 @@
               </svg>
             </button>
           </div>
-
-          <!-- Active Problem Area Hazard Alert Banner -->
-          <div id="viewport-hazard-alert" class="viewport-hazard-alert" style="display:none;" aria-live="assertive">
-            <span class="hazard-alert-icon">⚠️</span>
-            <span id="viewport-hazard-text">ACTIVE TERRAIN VIOLATION</span>
-          </div>
-        </div>
-
-        <!-- Problem Areas & Dangerous Terrain Status Strip -->
-        <div class="terrain-status-bar" id="terrain-status-bar" aria-label="Camera Problem Areas and Dangerous Terrain Status">
-          <span style="color:var(--text-muted); font-size:0.65rem; text-transform:uppercase; letter-spacing:0.04em;">TERRAIN HAZARDS:</span>
-          <div id="terrain-badges-list" style="display:inline-flex; gap:6px; flex-wrap:wrap;"></div>
         </div>
 
         <!-- NVR Interactive Recording Scrubber Bar -->
@@ -362,20 +352,11 @@
           <button class="filter-btn" data-category="suspicious_activity" aria-pressed="false">
             Suspicious <span class="filter-count" id="count-suspicious_activity">0</span>
           </button>
-          <button class="filter-btn" data-category="suicide_risk" aria-pressed="false">
-            Suicide / Fall <span class="filter-count" id="count-suicide_risk">0</span>
-          </button>
-          <button class="filter-btn" data-category="weapons" aria-pressed="false" style="border-color: rgba(244,63,94,0.4); color: #f43f5e;">
-            <span class="weapon-dot" style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#f43f5e; margin-right:3px;"></span>Weapons <span class="filter-count" id="count-weapons">0</span>
-          </button>
-          <button class="filter-btn" data-category="dangerous_terrain" aria-pressed="false" style="border-color: rgba(234,179,8,0.4); color: #eab308;">
-            ⚠️ Terrain <span class="filter-count" id="count-terrain">0</span>
-          </button>
-          <select id="confidence-filter" class="select" style="min-width: 125px; font-size: 0.72rem; padding: 2px 6px; margin-left: auto;" title="Filter incidents by minimum AI confidence threshold">
-            <option value="0">All Conf (0%+)</option>
-            <option value="0.5" selected>Verified (50%+)</option>
-            <option value="0.7">High Conf (70%+)</option>
-            <option value="0.85">Critical (85%+)</option>
+          <select id="confidence-filter" class="select" style="min-width: 155px; font-size: 0.72rem; padding: 2px 6px; margin-left: auto;" title="Filter incidents by verification tier">
+            <option value="high" selected>High confidence (≥75%)</option>
+            <option value="all_verified">All verified</option>
+            <option value="needs_review">Needs review (&lt;75%)</option>
+            <option value="rejected">Rejected by VLM (developer only)</option>
           </select>
         </div>
 
@@ -629,12 +610,11 @@
           <input type="text" id="cam-input-source" class="text-input" placeholder="data/videos/test3.mp4" required>
         </label>
         <label class="form-field">
-          <span>Camera Configuration Template</span>
-          <select id="cam-input-type" class="select-input">
-            <option value="turnstile">Turnstile / Entrance (Tailgating + Loitering)</option>
-            <option value="corridor">Corridor / Stairwell (Person Down + Hazard)</option>
-            <option value="open_zone">Open Courtyard / Yard (Crowd + Fighting)</option>
-            <option value="hazard">Rooftop / Balcony / Railing (Suicide Risk / Fall Hazard)</option>
+          <span>Camera Scene Profile</span>
+          <select id="cam-input-profile" class="select-input">
+            <option value="indoor_premises" selected>Indoor Premises (Lobby, Entrance, Corridor)</option>
+            <option value="outdoor_street">Outdoor Street (Pedestrian Walkway - Person Down Disabled)</option>
+            <option value="custom">Custom Monitoring Profile</option>
           </select>
         </label>
         <div class="modal-actions" style="margin-top:16px;">

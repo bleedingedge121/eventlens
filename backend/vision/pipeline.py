@@ -36,7 +36,12 @@ _INGEST_ENGINES: Dict[str, VideoIngest] = {}
 _LATEST_FRAMES: Dict[str, bytes] = {}
 _CAMERA_METRICS: Dict[str, dict] = {}
 _VLM_ACTIVITY: Dict[str, dict] = {}
+_TRIGGER_ENGINES: Dict[str, TriggerEngine] = {}
 _LOCK = threading.Lock()
+
+def get_trigger_engine(camera_id: str) -> Optional[TriggerEngine]:
+    with _LOCK:
+        return _TRIGGER_ENGINES.get(camera_id)
 
 # Bounded VLM Dispatcher FIFO Queue (eliminates thread stampedes & lock starvation)
 _VLM_QUEUE: queue.Queue = queue.Queue(maxsize=16)
@@ -150,20 +155,24 @@ def _camera_worker_loop(
     target_fps = settings.get("vision", {}).get("target_fps", 25.0)
     yolo_model = settings.get("vision", {}).get("yolo_model", "yolo11s.pt")
     device = settings.get("vision", {}).get("device", "cuda:0")
-    conf_thresh = float(settings.get("vision", {}).get("confidence_threshold", 0.25))
+    conf_thresh = float(settings.get("vision", {}).get("confidence_threshold", 0.35))
+    tracker_config = settings.get("vision", {}).get("tracker", "config/bytetrack.yaml")
 
     ingest = VideoIngest(source=source, target_fps=target_fps)
-    tracker = DetectorTracker(model_name=yolo_model, conf_thresh=conf_thresh, device=device)
+    tracker = DetectorTracker(model_name=yolo_model, tracker_config=tracker_config, conf_thresh=conf_thresh, device=device)
     trigger = TriggerEngine(camera_id=camera_id, config=cam_config)
 
     with _LOCK:
         _INGEST_ENGINES[camera_id] = ingest
+        _TRIGGER_ENGINES[camera_id] = trigger
         _CAMERA_METRICS[camera_id] = {
             "source": source,
             "fps": 0.0,
             "processed_frames": 0,
             "active_tracks": 0,
             "last_active": time.time(),
+            "scene_profile": trigger.get_scene_profile(),
+            "paused_rules": {},
         }
 
     # Circular context frame buffer (3-4 frames for VLM temporal analysis)
@@ -228,7 +237,8 @@ def _camera_worker_loop(
             candidates = trigger.update(detections, current_time=timestamp_sec)
             with _LOCK:
                 if camera_id in _CAMERA_METRICS:
-                    _CAMERA_METRICS[camera_id]["active_hazards"] = trigger.get_active_zone_status()
+                    _CAMERA_METRICS[camera_id]["paused_rules"] = dict(trigger.paused_reasons)
+                    _CAMERA_METRICS[camera_id]["scene_profile"] = trigger.get_scene_profile()
             for cand in candidates:
                 # Package recent frames and keyframe
                 recent_frames_bytes = []
@@ -256,6 +266,7 @@ def _camera_worker_loop(
         with _LOCK:
             if _STOP_EVENTS.get(camera_id) == stop_event:
                 _INGEST_ENGINES.pop(camera_id, None)
+                _TRIGGER_ENGINES.pop(camera_id, None)
                 _RUNNING_FLAGS[camera_id] = False
 
 
@@ -339,7 +350,8 @@ def get_camera_status(camera_id: str) -> dict:
             "is_paused": metrics.get("is_paused", False),
             "pts_sec": metrics.get("pts_sec", 0.0),
             "progress_ratio": metrics.get("progress_ratio", 0.0),
-            "active_hazards": metrics.get("active_hazards", []),
+            "scene_profile": metrics.get("scene_profile", "indoor_premises"),
+            "paused_rules": metrics.get("paused_rules", {}),
         }
 
 

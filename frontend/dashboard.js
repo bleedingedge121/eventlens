@@ -6,7 +6,7 @@
   let currentCamera = 'cam1';
   let currentCategory = '';
   let searchQuery = '';
-  let minConfidence = 0.5;
+  let currentConfidenceTier = 'high'; // 'high' | 'all_verified' | 'needs_review' | 'rejected'
   let zonesVisible = false;
   let audioEnabled = true;
   let lastEventsSig = null;
@@ -37,16 +37,13 @@
     }
   };
 
-  // Category metadata for UI
+  // Category metadata for UI (core taxonomy categories)
   const CATEGORY_META = {
     tailgating: { label: 'Tailgating', color: '#f59e0b', severity: 'warning', badgeClass: 'badge--tailgating' },
     person_down: { label: 'Person Down', color: '#ff5c7a', severity: 'critical', badgeClass: 'badge--person_down' },
     fighting: { label: 'Fighting', color: '#ff5722', severity: 'critical', badgeClass: 'badge--fighting' },
     crowd_incident: { label: 'Crowd', color: '#818cf8', severity: 'warning', badgeClass: 'badge--crowd_incident' },
-    suspicious_activity: { label: 'Suspicious', color: '#38bdf8', severity: 'notice', badgeClass: 'badge--suspicious_activity' },
-    suicide_risk: { label: 'Suicide / Fall Hazard', color: '#c084fc', severity: 'critical', badgeClass: 'badge--suicide_risk' },
-    weapons: { label: 'Weapon Incident', color: '#f43f5e', severity: 'critical', badgeClass: 'badge--weapon' },
-    dangerous_terrain: { label: 'Terrain Hazard', color: '#eab308', severity: 'warning', badgeClass: 'badge--warning' }
+    suspicious_activity: { label: 'Suspicious', color: '#38bdf8', severity: 'notice', badgeClass: 'badge--suspicious_activity' }
   };
 
   // ============ DOM REFERENCES ============
@@ -118,10 +115,7 @@
       person_down: $('#count-person_down'),
       fighting: $('#count-fighting'),
       crowd_incident: $('#count-crowd_incident'),
-      suspicious_activity: $('#count-suspicious_activity'),
-      suicide_risk: $('#count-suicide_risk'),
-      weapons: $('#count-weapons'),
-      dangerous_terrain: $('#count-terrain')
+      suspicious_activity: $('#count-suspicious_activity')
     },
     confidenceFilter: $('#confidence-filter'),
     eventFeed: $('#event-feed'),
@@ -499,39 +493,20 @@
         }
       }
 
-      // Update Active Dangerous Terrain / Hazard Overlays
-      currentActiveHazards = cam.active_hazards || [];
-      const alertEl = document.getElementById('viewport-hazard-alert');
-      const alertText = document.getElementById('viewport-hazard-text');
-      if (alertEl && alertText) {
-        if (currentActiveHazards.length > 0) {
-          const topHz = currentActiveHazards[0];
-          alertText.textContent = `${topHz.icon || '⚠️'} ${topHz.zone_name.toUpperCase()}: TARGET #${topHz.track_id} DWELLING ${topHz.dwell_sec}s / ${topHz.max_sec}s`;
-          alertEl.style.display = 'flex';
-          alertEl.classList.toggle('critical', topHz.severity === 'CRITICAL' || topHz.dwell_sec >= topHz.max_sec);
-        } else {
-          alertEl.style.display = 'none';
-        }
+      // Update Scene Profile and Auto-Paused telemetry
+      const hudProfile = document.getElementById('hud-profile');
+      if (hudProfile && cam.scene_profile) {
+        hudProfile.textContent = cam.scene_profile.replace(/_/g, ' ').toUpperCase();
       }
 
-      // Populate terrain status badges list
-      const terrainList = document.getElementById('terrain-badges-list');
-      if (terrainList) {
-        const camCfg = cameraConfigs[currentCamera] || {};
-        const hazardZones = camCfg.hazard_zones || [];
-        if (!hazardZones.length) {
-          terrainList.innerHTML = '<span style="color:var(--text-muted); font-size:0.65rem;">No terrain hazards configured for this camera</span>';
+      const hudPausedBadge = document.getElementById('hud-paused-badge');
+      if (hudPausedBadge) {
+        const pausedKeys = cam.paused_rules ? Object.keys(cam.paused_rules) : [];
+        if (pausedKeys.length > 0) {
+          hudPausedBadge.textContent = `auto-paused (${pausedKeys.join(', ')}): low verification rate`;
+          hudPausedBadge.style.display = 'inline-flex';
         } else {
-          terrainList.innerHTML = hazardZones.map(hz => {
-            const active = currentActiveHazards.find(a => a.zone_name === hz.name);
-            const isActive = !!active;
-            const dwellInfo = isActive ? ` (${active.dwell_sec}s / #${active.track_id})` : ' [CLEAR]';
-            return `<span class="terrain-badge ${isActive ? 'terrain-badge--active' : ''}" title="${escapeHtml(hz.name)} - ${hz.severity}">
-              <span>${hz.icon || '⚠️'}</span>
-              <span>${escapeHtml(hz.name)}</span>
-              <span style="font-size:0.6rem; opacity:0.85;">${dwellInfo}</span>
-            </span>`;
-          }).join('');
+          hudPausedBadge.style.display = 'none';
         }
       }
 
@@ -548,26 +523,10 @@
   function renderEvents() {
     let filtered = currentEvents;
 
-    if (currentCategory === 'weapons') {
-      filtered = filtered.filter(e =>
-        e.weapon_detected === true ||
-        (Array.isArray(e.tags) && (e.tags.includes('weapon') || e.tags.includes('firearm') || e.tags.includes('bladed') || e.tags.includes('blunt'))) ||
-        (typeof e.tags === 'string' && (e.tags.includes('weapon') || e.tags.includes('firearm') || e.tags.includes('bladed') || e.tags.includes('blunt'))) ||
-        (e.summary && e.summary.toLowerCase().includes('weapon'))
-      );
-    } else if (currentCategory === 'dangerous_terrain') {
-      filtered = filtered.filter(e =>
-        (Array.isArray(e.tags) && (e.tags.includes('dangerous_terrain') || e.tags.includes('fall_hazard') || e.tags.includes('slip_hazard') || e.tags.includes('electrical_hazard') || e.tags.includes('hazard'))) ||
-        (typeof e.tags === 'string' && (e.tags.includes('dangerous_terrain') || e.tags.includes('fall_hazard') || e.tags.includes('slip_hazard') || e.tags.includes('electrical_hazard') || e.tags.includes('hazard'))) ||
-        (e.summary && (e.summary.toLowerCase().includes('hazard') || e.summary.toLowerCase().includes('terrain') || e.summary.toLowerCase().includes('ledge') || e.summary.toLowerCase().includes('spill') || e.summary.toLowerCase().includes('electrical')))
-      );
-    } else if (currentCategory) {
+    if (currentCategory) {
       filtered = filtered.filter(e => e.category === currentCategory);
     }
 
-    if (minConfidence > 0) {
-      filtered = filtered.filter(e => (e.confidence ?? 1) >= minConfidence);
-    }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(e =>
@@ -581,25 +540,22 @@
 
     els.feedCount.textContent = filtered.length;
 
-    // Update weapon & terrain counts on filter bar
-    const countWeaponsEl = document.getElementById('count-weapons');
-    if (countWeaponsEl) {
-      const wCount = currentEvents.filter(e =>
-        e.weapon_detected === true ||
-        (Array.isArray(e.tags) && (e.tags.includes('weapon') || e.tags.includes('firearm') || e.tags.includes('bladed') || e.tags.includes('blunt'))) ||
-        (typeof e.tags === 'string' && (e.tags.includes('weapon') || e.tags.includes('firearm') || e.tags.includes('bladed') || e.tags.includes('blunt'))) ||
-        (e.summary && e.summary.toLowerCase().includes('weapon'))
-      ).length;
-      countWeaponsEl.textContent = wCount;
+    // Update category counts on filter bar to match the current confidence tier
+    const catCounts = {
+      all: currentEvents.length,
+      tailgating: 0,
+      person_down: 0,
+      fighting: 0,
+      crowd_incident: 0,
+      suspicious_activity: 0
+    };
+    for (const ev of currentEvents) {
+      if (Object.prototype.hasOwnProperty.call(catCounts, ev.category)) {
+        catCounts[ev.category]++;
+      }
     }
-    const countTerrainEl = document.getElementById('count-terrain');
-    if (countTerrainEl) {
-      const tCount = currentEvents.filter(e =>
-        (Array.isArray(e.tags) && (e.tags.includes('dangerous_terrain') || e.tags.includes('fall_hazard') || e.tags.includes('slip_hazard') || e.tags.includes('electrical_hazard') || e.tags.includes('hazard'))) ||
-        (typeof e.tags === 'string' && (e.tags.includes('dangerous_terrain') || e.tags.includes('fall_hazard') || e.tags.includes('slip_hazard') || e.tags.includes('electrical_hazard') || e.tags.includes('hazard'))) ||
-        (e.summary && (e.summary.toLowerCase().includes('hazard') || e.summary.toLowerCase().includes('terrain') || e.summary.toLowerCase().includes('ledge') || e.summary.toLowerCase().includes('spill') || e.summary.toLowerCase().includes('electrical')))
-      ).length;
-      countTerrainEl.textContent = tCount;
+    for (const [cat, cnt] of Object.entries(catCounts)) {
+      if (els.filterCounts[cat]) els.filterCounts[cat].textContent = cnt;
     }
 
     if (!filtered.length) {
@@ -624,11 +580,6 @@
 
       const keyframeSrc = ev.keyframe_url || `/frames/${ev.id}.jpg`;
       const summaryText = ev.summary || '';
-      const hasStrictWeapon = ev.weapon_detected === true ||
-        (summaryText.includes('[WEAPON DETECTED]') && !/\b(no weapon|unarmed|not a weapon|camera shot|wide shot)\b/i.test(summaryText));
-      const weaponBadge = hasStrictWeapon
-        ? `<span class="badge badge--weapon" title="Weapon or firearm identified in footage"><span class="weapon-dot"></span> WEAPON DETECTED</span>`
-        : '';
 
       // Parse tags for security tag chips
       let parsedTags = [];
@@ -638,24 +589,16 @@
         try { parsedTags = JSON.parse(ev.tags); } catch { parsedTags = []; }
       }
       const tagChipsHtml = parsedTags.map(t => {
-        let chipClass = 'tag-chip';
-        let icon = '🏷️';
-        const tl = t.toLowerCase();
-        if (tl.includes('weapon') || tl.includes('firearm') || tl.includes('bladed') || tl.includes('blunt')) {
-          chipClass += ' tag-chip--weapon';
-          icon = '🔫';
-        } else if (tl.includes('hazard') || tl.includes('terrain') || tl.includes('slip') || tl.includes('fall') || tl.includes('electrical')) {
-          chipClass += ' tag-chip--hazard';
-          icon = '⚠️';
-        } else if (tl.includes('tailgating') || tl.includes('passback')) {
-          chipClass += ' tag-chip--tailgating';
-          icon = '🚶‍♂️🚶‍♂️';
-        }
-        return `<span class="${chipClass}">${icon} ${escapeHtml(t.replace(/_/g, ' '))}</span>`;
+        return `<span class="tag-chip">🏷️ ${escapeHtml(t.replace(/_/g, ' '))}</span>`;
       }).join(' ');
 
+      const isRejected = ev.verified === 0 || ev.status === 'rejected';
+      const statusBadge = isRejected
+        ? `<span class="badge" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.4);">REJECTED</span>`
+        : '';
+
       return `
-        <article class="event-item event-item--${escapeHtml(ev.category)} ${hasStrictWeapon ? 'event-item--weapon' : ''}" data-id="${ev.id}" tabindex="0" role="listitem" aria-label="Incident ${ev.id}: ${meta.label}">
+        <article class="event-item event-item--${escapeHtml(ev.category)}" data-id="${ev.id}" tabindex="0" role="listitem" aria-label="Incident ${ev.id}: ${meta.label}">
           <div class="event-thumb-wrapper">
             <img class="event-thumb" src="${escapeHtml(keyframeSrc)}" alt="Keyframe for incident ${ev.id}" loading="lazy"
               onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'104\\' height=\\'64\\'><rect width=\\'100%\\' height=\\'100%\\' fill=\\'%23080c14\\'/><text x=\\'50%\\' y=\\'50%\\' fill=\\'%23475569\\' font-size=\\'9\\' font-family=\\'monospace\\' text-anchor=\\'middle\\' dominant-baseline=\\'middle\\'>NO FRAME</text></svg>'">
@@ -663,7 +606,7 @@
           <div class="event-body">
             <div class="event-meta">
               <span class="badge ${meta.badgeClass}">${meta.label}</span>
-              ${weaponBadge}
+              ${statusBadge}
               <span class="event-time" title="${formatTimestamp(ev.timestamp)}">${formatTime(ev.timestamp)}${formatRelativeTime(ev.timestamp) ? ` · ${formatRelativeTime(ev.timestamp)}` : ''}</span>
               <span class="event-camera">${escapeHtml(ev.camera_id)}</span>
             </div>
@@ -1136,7 +1079,7 @@
         const camId = $('#cam-input-id')?.value.trim();
         const name = $('#cam-input-name')?.value.trim();
         const source = $('#cam-input-source')?.value.trim();
-        const camType = $('#cam-input-type')?.value;
+        const sceneProfile = $('#cam-input-profile')?.value || 'indoor_premises';
 
         if (!camId || !source) return;
 
@@ -1148,7 +1091,7 @@
               camera_id: camId,
               name: name,
               source: source,
-              camera_type: camType
+              scene_profile: sceneProfile
             })
           });
           const result = await res.json();
@@ -1899,19 +1842,18 @@
     try {
       const s = await EL.getJson('/api/stats', { signal });
       els.statToday.textContent = s.events_today ?? '\u2014';
-      els.statTotal.textContent = s.total_events ?? '\u2014';
-      els.statLatency.textContent = s.avg_latency_ms ? `${s.avg_latency_ms} ms` : '\u2014 ms';
+      els.statTotal.textContent = s.verified_events ?? s.total_verified ?? s.total_events ?? '\u2014';
+
+      const p50 = s.p50_latency_ms || s.avg_latency_ms || 0;
+      const p95 = s.p95_latency_ms || 0;
+      els.statLatency.textContent = p50 ? `${p50} ms` : '\u2014 ms';
+      const p50El = document.getElementById('stat-latency-p50');
+      const p95El = document.getElementById('stat-latency-p95');
+      if (p50El) p50El.textContent = p50 ? `${p50}ms` : '—';
+      if (p95El) p95El.textContent = p95 ? `${p95}ms` : '—';
+
       if (!isCameraStreamActive && els.statProcessing) {
         els.statProcessing.textContent = s.pipeline_status || (s.events_today > 0 ? 'Active' : 'Idle');
-      }
-
-      if (s.categories) {
-        let total = 0;
-        for (const [cat, cnt] of Object.entries(s.categories)) {
-          if (els.filterCounts[cat]) els.filterCounts[cat].textContent = cnt;
-          total += cnt;
-        }
-        els.filterCounts.all.textContent = total;
       }
     } catch (err) {
       if (err.name !== 'AbortError') throw err;
@@ -1920,20 +1862,21 @@
 
   async function fetchEvents(signal) {
     try {
-      const data = await EL.getJson('/api/events?limit=50', { signal });
+      const tier = currentConfidenceTier || 'high';
+      const data = await EL.getJson(`/api/events?status=${encodeURIComponent(tier)}&limit=100`, { signal });
       const events = data.events || [];
 
       if (events.length) {
         const newEvents = events.filter(e => e.id > lastEventId);
-        // Only alert audio if a new verified event with confidence >= 65% is recorded
-        if (lastEventId !== 0 && newEvents.some(e => (e.confidence ?? 0) >= 0.65)) {
+        // Only alert audio if a new verified event with high confidence is recorded
+        if (lastEventId !== 0 && newEvents.some(e => e.verified && (e.confidence ?? 0) >= 0.75)) {
           playAlertChime();
         }
         lastEventId = Math.max(...events.map(e => e.id));
       }
 
       // Re-render only when the payload actually changed: no flicker, no scroll/focus loss, no image refetch.
-      const sig = events.map(e => `${e.id}:${e.confidence}:${(e.summary || '').length}`).join('|');
+      const sig = `${tier}:${events.map(e => `${e.id}:${e.confidence}:${(e.summary || '').length}`).join('|')}`;
       if (sig === lastEventsSig) return;
       lastEventsSig = sig;
       currentEvents = events;
@@ -2104,11 +2047,12 @@
       });
     });
 
-    // Confidence threshold filter
+    // Confidence tier filter (high [>=75%], all_verified, needs_review [<75%], rejected)
     if (els.confidenceFilter) {
       els.confidenceFilter.addEventListener('change', e => {
-        minConfidence = parseFloat(e.target.value) || 0;
-        renderEvents();
+        currentConfidenceTier = e.target.value || 'high';
+        lastEventsSig = null;
+        fetchEvents().catch(EL.report);
       });
     }
 

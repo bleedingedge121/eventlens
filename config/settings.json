@@ -9,9 +9,9 @@
   },
   "vision": {
     "yolo_model": "yolo11s.pt",
-    "tracker": "bytetrack.yaml",
+    "tracker": "config/bytetrack.yaml",
     "target_fps": 25,
-    "confidence_threshold": 0.20,
+    "confidence_threshold": 0.35,
     "device": "cuda:0"
   },
   "storage": {

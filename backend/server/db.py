@@ -1,24 +1,20 @@
-"""EventLens SQLite Database Manager.
+"""
+EventLens SQLite Database Access Layer.
 
-Adheres strictly to AGENTS.md Section 9 schema:
-events(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  timestamp TEXT,        -- ISO 8601
-  camera_id TEXT,
-  category TEXT,         -- one of the five categories
-  confidence REAL,       -- 0..1
-  summary TEXT,
-  keyframe_path TEXT,
-  track_ids TEXT,        -- JSON list
-  latency_ms INTEGER     -- trigger to saved
-)
+Handles storage and retrieval of classified video events, keyframe references,
+VLM verification status, latency telemetry, and safe read-only queries for conversational search.
 """
 
-import json
-import sqlite3
+from contextlib import contextmanager
 from datetime import datetime
+import json
+import logging
 from pathlib import Path
+import sqlite3
 from typing import Any, Dict, List, Optional
+import numpy as np
+
+logger = logging.getLogger("eventlens.db")
 
 VALID_CATEGORIES = {
     "person_down",
@@ -26,7 +22,6 @@ VALID_CATEGORIES = {
     "tailgating",
     "crowd_incident",
     "suspicious_activity",
-    "suicide_risk",
 }
 
 
@@ -35,8 +30,6 @@ class Database:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.init_db()
-
-    from contextlib import contextmanager
 
     @contextmanager
     def _connection(self):
@@ -69,11 +62,21 @@ class Database:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_category ON events(category)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_camera ON events(camera_id)")
-            # Add tags column if not exists
-            try:
-                cursor.execute("ALTER TABLE events ADD COLUMN tags TEXT DEFAULT '[]'")
-            except sqlite3.OperationalError:
-                pass
+
+            # Incremental column additions
+            for col_def in [
+                ("tags", "TEXT DEFAULT '[]'"),
+                ("verified", "INTEGER DEFAULT 1"),
+                ("verdict", "TEXT DEFAULT 'yes'"),
+                ("status", "TEXT DEFAULT 'verified'"),
+                ("vlm_latency_ms", "INTEGER DEFAULT 0"),
+                ("raw_response", "TEXT DEFAULT ''"),
+                ("rejection_reason", "TEXT DEFAULT ''"),
+            ]:
+                try:
+                    cursor.execute(f"ALTER TABLE events ADD COLUMN {col_def[0]} {col_def[1]}")
+                except sqlite3.OperationalError:
+                    pass
             conn.commit()
 
     def insert_event(self, event: Dict[str, Any]) -> int:
@@ -91,6 +94,13 @@ class Database:
             tags_str = str(tags_val)
 
         timestamp = event.get("timestamp") or datetime.now().isoformat(timespec="seconds")
+        verified = 1 if event.get("verified", True) else 0
+        status = event.get("status", "verified" if verified else "rejected")
+        verdict = event.get("verdict", "yes" if verified else "no")
+        latency_ms = int(event.get("latency_ms", 0))
+        vlm_latency_ms = int(event.get("vlm_latency_ms", latency_ms))
+        if latency_ms == 0 and vlm_latency_ms > 0:
+            latency_ms = vlm_latency_ms
 
         with self._connection() as conn:
             cursor = conn.cursor()
@@ -98,8 +108,9 @@ class Database:
                 """
                 INSERT INTO events (
                     timestamp, camera_id, category, confidence, summary,
-                    keyframe_path, track_ids, latency_ms, tags
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    keyframe_path, track_ids, latency_ms, tags,
+                    verified, verdict, status, vlm_latency_ms, raw_response, rejection_reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     timestamp,
@@ -109,8 +120,14 @@ class Database:
                     event.get("summary", ""),
                     event.get("keyframe_path", ""),
                     track_ids_str,
-                    int(event.get("latency_ms", 0)),
+                    latency_ms,
                     tags_str,
+                    verified,
+                    verdict,
+                    status,
+                    vlm_latency_ms,
+                    event.get("raw_response", ""),
+                    event.get("rejection_reason", ""),
                 ),
             )
             conn.commit()
@@ -147,9 +164,10 @@ class Database:
         category: Optional[str] = None,
         camera_id: Optional[str] = None,
         since: Optional[str] = None,
-        limit: int = 100,
+        status: Optional[str] = "high",
+        limit: int = 150,
     ) -> List[Dict[str, Any]]:
-        """Filters events based on category, camera, and timestamp."""
+        """Filters events based on category, camera, timestamp, and verification/confidence tier."""
         query = "SELECT * FROM events WHERE 1=1"
         params: List[Any] = []
 
@@ -163,7 +181,23 @@ class Database:
             query += " AND timestamp >= ?"
             params.append(since)
 
-        query += " ORDER BY id DESC LIMIT ?"
+        # Verification & confidence status tiers
+        if status == "high":
+            query += " AND verified = 1 AND confidence >= 0.75"
+        elif status == "all_verified":
+            query += " AND verified = 1"
+        elif status == "needs_review":
+            query += " AND verified = 1 AND confidence < 0.75"
+        elif status == "rejected":
+            query += " AND verified = 0"
+        elif status == "all":
+            pass  # return everything
+        else:
+            # Default is high confidence
+            query += " AND verified = 1 AND confidence >= 0.75"
+
+        # Sort by time descending, secondary sort by confidence
+        query += " ORDER BY timestamp DESC, confidence DESC LIMIT ?"
         params.append(min(limit, 10000))
 
         with self._connection() as conn:
@@ -173,52 +207,71 @@ class Database:
             return [self._row_to_event_dict(r) for r in rows]
 
     def get_stats(self) -> Dict[str, Any]:
-        """Calculates dashboard summary stats: counts per category, average latency, and today's total."""
+        """Calculates dashboard summary stats: verified count, p50/p95 VLM latency, and categories."""
         today_prefix = datetime.now().strftime("%Y-%m-%d")
 
         with self._connection() as conn:
             cursor = conn.cursor()
 
-            # Counts per category
+            # Counts per category (only verified events count toward statistics)
             cursor.execute(
                 """
                 SELECT category, COUNT(*) as count
                 FROM events
+                WHERE verified = 1
                 GROUP BY category
                 """
             )
             counts_by_cat = {cat: 0 for cat in VALID_CATEGORIES}
             for row in cursor.fetchall():
-                counts_by_cat[row["category"]] = row["count"]
+                if row["category"] in counts_by_cat:
+                    counts_by_cat[row["category"]] = row["count"]
 
-            # Events today
+            # Verified events today
             cursor.execute(
-                "SELECT COUNT(*) as count FROM events WHERE timestamp LIKE ?",
+                "SELECT COUNT(*) as count FROM events WHERE verified = 1 AND timestamp LIKE ?",
                 (f"{today_prefix}%",),
             )
             events_today = cursor.fetchone()["count"]
 
-            # Total events
-            cursor.execute("SELECT COUNT(*) as count FROM events")
-            total_events = cursor.fetchone()["count"]
+            # Total verified events
+            cursor.execute("SELECT COUNT(*) as count FROM events WHERE verified = 1")
+            total_verified = cursor.fetchone()["count"]
 
-            # Avg latency
+            # Total rejected events
+            cursor.execute("SELECT COUNT(*) as count FROM events WHERE verified = 0")
+            total_rejected = cursor.fetchone()["count"]
+
+            # Compute p50 and p95 latency on verified events
             cursor.execute(
-                "SELECT AVG(latency_ms) as avg_lat FROM events WHERE latency_ms > 0"
+                """
+                SELECT COALESCE(NULLIF(vlm_latency_ms, 0), latency_ms) as lat
+                FROM events
+                WHERE verified = 1 AND (latency_ms > 0 OR vlm_latency_ms > 0)
+                """
             )
-            avg_row = cursor.fetchone()
-            avg_latency = round(avg_row["avg_lat"] or 0, 1)
+            lats = [r["lat"] for r in cursor.fetchall()]
+
+            if lats:
+                p50 = float(np.percentile(lats, 50))
+                p95 = float(np.percentile(lats, 95))
+            else:
+                p50, p95 = 0.0, 0.0
 
             return {
                 "categories": counts_by_cat,
                 "events_today": events_today,
-                "total_events": total_events,
-                "avg_latency_ms": avg_latency,
+                "total_events": total_verified,
+                "total_verified": total_verified,
+                "verified_events": total_verified,
+                "total_rejected": total_rejected,
+                "avg_latency_ms": round(p50, 1),
+                "p50_latency_ms": round(p50, 1),
+                "p95_latency_ms": round(p95, 1),
             }
 
     def run_readonly_query(self, sql: str) -> List[Dict[str, Any]]:
         """Executes a sanitized read-only SELECT query for conversational querying."""
-        # Open in read-only mode using SQLite URI (cross-platform safe for Windows & POSIX)
         uri = f"{self.db_path.resolve().as_uri()}?mode=ro"
         conn = sqlite3.connect(uri, uri=True, timeout=5.0)
         conn.row_factory = sqlite3.Row
@@ -240,19 +293,22 @@ class Database:
             except Exception:
                 track_ids = []
 
-        keyframe_path = row["keyframe_path"] or ""
-        keyframe_url = f"/frames/{Path(keyframe_path).name}" if keyframe_path else f"/frames/{row['id']}.jpg"
-
         tags = []
         try:
             if "tags" in row.keys() and row["tags"]:
                 tags = json.loads(row["tags"])
         except Exception:
             tags = []
-        if not tags:
-            tags = [row["category"]]
-            if "[WEAPON" in row["summary"]:
-                tags.append("weapon_detected")
+
+        verified = True
+        try:
+            if "verified" in row.keys() and row["verified"] is not None:
+                verified = bool(row["verified"])
+        except Exception:
+            pass
+
+        keyframe_path = row["keyframe_path"] or ""
+        keyframe_url = f"/frames/{row['id']}.jpg" if keyframe_path else ""
 
         return {
             "id": row["id"],
@@ -261,8 +317,11 @@ class Database:
             "category": row["category"],
             "confidence": round(float(row["confidence"]), 2),
             "summary": row["summary"],
+            "keyframe_path": keyframe_path,
             "keyframe_url": keyframe_url,
             "track_ids": track_ids,
             "latency_ms": row["latency_ms"],
             "tags": tags,
+            "verified": verified,
+            "status": row["status"] if ("status" in row.keys() and row["status"]) else ("verified" if verified else "rejected"),
         }

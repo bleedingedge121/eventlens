@@ -114,9 +114,9 @@ class CameraCreateRequest(BaseModel):
     name: str
     description: Optional[str] = ""
     source: Optional[str] = None
+    scene_profile: Optional[str] = "indoor_premises"
     door_zone: Optional[list] = None
     restricted_zones: Optional[list] = None
-    hazard_zones: Optional[list] = None
     crowd_threshold: Optional[int] = 7
     auto_start: bool = True
 
@@ -128,51 +128,58 @@ class ChatRequest(BaseModel):
 def on_candidate_event(candidate: dict):
     """Callback invoked by the vision pipeline when an event rule triggers.
 
-    Runs the VLM, filters by confidence threshold, and stores the resulting event into the database.
-    Saves both keyframe image and multi-frame event clip.
+    Runs the VLM verifier, feeds verification result back to trigger auto-pause,
+    and stores event into database with appropriate status (high, needs_review, or rejected).
     """
     import time
     start_t = time.time()
+    camera_id = candidate.get("camera_id", "cam1")
+    category_hint = candidate.get("category_hint", "suspicious_activity")
 
-    # Call VLM to describe and confirm
+    # Call VLM to verify
     vlm_result = vlm.describe_event(candidate)
 
-    # Drop if VLM classified as "none" (filtering false alarms)
-    if vlm_result.get("category") == "none":
-        logger.info(f"[Server] VLM filtered event as 'none' (false alarm) from {candidate.get('camera_id')}")
-        return
-
-    # Drop low-confidence events (noise reduction based on settings.json)
-    min_conf = 0.50
+    # 1. Update trigger auto-pause cooldown counter with VLM feedback
     try:
-        with open(BASE_DIR / "config" / "settings.json", "r") as f:
-            min_conf = float(json.load(f).get("event_filter", {}).get("min_confidence", 0.50))
-    except Exception:
-        pass
-
-    confidence = vlm_result.get("confidence", 0.0)
-    if confidence < min_conf:
-        logger.info(f"[Server] Dropped low-confidence event: {vlm_result.get('category')} at {confidence:.0%} < {min_conf:.0%}")
-        return
+        from backend.vision.pipeline import get_trigger_engine
+        trigger_eng = get_trigger_engine(camera_id)
+        if trigger_eng:
+            trigger_eng.record_vlm_feedback(category_hint, vlm_result.get("verdict", "no"))
+    except Exception as e:
+        logger.warning(f"[Server] Failed to record VLM feedback for {camera_id}: {e}")
 
     latency_ms = int((time.time() - start_t) * 1000)
+    verified = 1 if vlm_result.get("verified", False) else 0
+    confidence = float(vlm_result.get("confidence", 0.0))
+
+    if verified:
+        status = "high" if confidence >= 0.75 else "needs_review"
+    else:
+        status = "rejected"
+        logger.info(f"[Server] Event '{category_hint}' dropped by VLM ({vlm_result.get('rejection_reason')})")
 
     event_payload = {
         "timestamp": candidate.get("timestamp"),
-        "camera_id": candidate.get("camera_id"),
-        "category": vlm_result["category"],
-        "confidence": vlm_result["confidence"],
-        "summary": vlm_result["summary"],
+        "camera_id": camera_id,
+        "category": vlm_result.get("category") or category_hint,
+        "confidence": confidence,
+        "summary": vlm_result.get("summary", ""),
         "keyframe_path": "",
         "track_ids": candidate.get("track_ids", []),
         "latency_ms": latency_ms,
-        "tags": vlm_result.get("tags") or candidate.get("tags", []),
+        "tags": vlm_result.get("tags") or [category_hint],
+        "verified": verified,
+        "verdict": vlm_result.get("verdict", "no"),
+        "status": status,
+        "vlm_latency_ms": vlm_result.get("latency_ms", latency_ms),
+        "raw_response": vlm_result.get("raw_response", ""),
+        "rejection_reason": vlm_result.get("rejection_reason", ""),
     }
 
     event_id = db.insert_event(event_payload)
 
-    if event_id:
-        # Save keyframe image
+    if event_id and verified:
+        # Save keyframe image for verified events
         keyframe_bytes = candidate.get("keyframe_bytes")
         if keyframe_bytes:
             keyframe_path = str(FRAMES_DIR / f"{event_id}.jpg")
@@ -223,9 +230,10 @@ def get_events(
     category: Optional[str] = Query(None),
     camera_id: Optional[str] = Query(None),
     since: Optional[str] = Query(None),
+    status: Optional[str] = Query("high"),
     limit: int = Query(50, le=10000),
 ):
-    events = db.query_events(category=category, camera_id=camera_id, since=since, limit=limit)
+    events = db.query_events(category=category, camera_id=camera_id, since=since, status=status, limit=limit)
     return {"events": events}
 
 
@@ -261,6 +269,30 @@ def get_stats():
     res = db.get_stats()
     res["vlm"] = vlm.get_status()
     return res
+
+
+@app.get("/api/taxonomy")
+def get_taxonomy_endpoint():
+    """Returns validated incident taxonomy, categories, allowed tags, and scene profiles."""
+    from backend.server.config import get_taxonomy
+    return get_taxonomy().raw
+
+
+@app.get("/api/config")
+def get_config_endpoint():
+    """Returns non-secret runtime configuration."""
+    from backend.server.config import get_settings
+    cfg = get_settings()
+    return {
+        "vision": cfg.get("vision", {}),
+        "event_filter": cfg.get("event_filter", {}),
+        "storage": {k: str(v) for k, v in cfg.get("storage", {}).items()},
+        "ollama": {
+            "vlm_model": cfg.get("ollama", {}).get("vlm_model"),
+            "chat_model": cfg.get("ollama", {}).get("chat_model"),
+            "timeout_seconds": cfg.get("ollama", {}).get("timeout_seconds"),
+        },
+    }
 
 
 @app.post("/api/chat")
@@ -495,13 +527,11 @@ def create_camera(req: CameraCreateRequest):
     cam_dict = {
         "name": req.name.strip() or f"Camera {cam_id.upper()}",
         "description": req.description.strip(),
+        "scene_profile": req.scene_profile or "indoor_premises",
         "door_zone": req.door_zone or [[180, 240], [420, 240], [420, 480], [180, 480]],
         "restricted_zones": req.restricted_zones or [],
-        "hazard_zones": req.hazard_zones or [],
         "crowd_threshold": req.crowd_threshold or 7,
         "tailgating_time_window_seconds": 1.8,
-        "person_down_aspect_ratio_threshold": 0.70,
-        "person_down_still_seconds": 0.8,
         "fighting_overlap_iou": 0.38,
         "fighting_speed_threshold_pixels_per_sec": 105.0,
     }

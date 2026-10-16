@@ -1,0 +1,81 @@
+version: "2.0.0"
+confidence:
+  high_threshold: 0.75
+
+scene_profiles:
+  indoor_premises:
+    description: "Indoor facility lobby, corridor, turnstile entrance"
+    person_down_enabled: true
+    crowd_baseline_factor: 1.8
+    min_crowd_count: 5
+    loiter_seconds: 5.0
+  outdoor_street:
+    description: "Outdoor public street, pedestrian walkway, open square"
+    person_down_enabled: false
+    crowd_baseline_factor: 2.5
+    min_crowd_count: 10
+    loiter_seconds: 15.0
+  custom:
+    description: "User customized monitoring profile"
+    person_down_enabled: true
+    crowd_baseline_factor: 2.0
+    min_crowd_count: 6
+    loiter_seconds: 8.0
+
+categories:
+  - id: "person_down"
+    label: "Person Down"
+    severity: "high"
+    color: "#f97316"
+    enabled: true
+    vlm_question: "Is a person lying flat on the floor or ground and motionless?"
+    allowed_tags:
+      - "person_down"
+      - "slip_fall"
+      - "motionless"
+      - "medical_collapse"
+
+  - id: "fighting"
+    label: "Fighting"
+    severity: "critical"
+    color: "#ef4444"
+    enabled: true
+    vlm_question: "Are two or more people engaged in an active physical fight, punching, wrestling, or violent struggle?"
+    allowed_tags:
+      - "fighting"
+      - "physical_altercation"
+      - "brawl"
+      - "punching"
+
+  - id: "tailgating"
+    label: "Tailgating"
+    severity: "medium"
+    color: "#eab308"
+    enabled: true
+    vlm_question: "Did an unauthorized follower closely tailgate through a door or turnstile directly behind another person without swiping credentials?"
+    allowed_tags:
+      - "tailgating"
+      - "unauthorized_entry"
+      - "badge_passback"
+
+  - id: "crowd_incident"
+    label: "Crowd Surge"
+    severity: "medium"
+    color: "#3b82f6"
+    enabled: true
+    vlm_question: "Is there an abnormally dense, agitated, or surging crowd causing a corridor bottleneck or safety hazard?"
+    allowed_tags:
+      - "crowd_incident"
+      - "dense_gathering"
+      - "corridor_blockage"
+
+  - id: "suspicious_activity"
+    label: "Suspicious Activity"
+    severity: "low"
+    color: "#8b5cf6"
+    enabled: true
+    vlm_question: "Is an unauthorized person loitering, trespassing, or trying to access restricted doors?"
+    allowed_tags:
+      - "suspicious_activity"
+      - "loitering"
+      - "unauthorized_presence"

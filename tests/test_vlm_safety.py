@@ -1,33 +1,38 @@
-"""Unit tests for VLM Safety, Weapon Suppression, and Parsing."""
+"""Unit tests for VLM Verification, Prompt Safety, and JSON Parsing."""
 
 import unittest
 from backend.server.vlm import VLMClient, VALID_CATEGORIES
 
 
 class TestVLMSafety(unittest.TestCase):
-    def test_suicide_risk_in_valid_categories(self):
-        self.assertIn("suicide_risk", VALID_CATEGORIES)
+    def test_core_valid_categories(self):
+        expected = {"person_down", "fighting", "tailgating", "crowd_incident", "suspicious_activity"}
+        self.assertEqual(VALID_CATEGORIES, expected)
 
-    def test_parse_json_no_weapon_false_positive(self):
-        # Even if text contains "camera shot" or "no weapon", weapon_detected must remain False
-        raw_text = '{"category": "suspicious_activity", "confidence": 0.82, "summary": "Person loitering near door in this camera shot. No weapon visible.", "weapon_detected": false}'
-        parsed = VLMClient._parse_json_response(raw_text)
-        self.assertIsNotNone(parsed)
-        self.assertEqual(parsed["category"], "suspicious_activity")
-        self.assertNotIn("[WEAPON DETECTED]", parsed["summary"])
-        self.assertFalse(parsed.get("weapon_detected", False))
-
-    def test_parse_json_true_weapon_detected(self):
-        raw_text = '{"category": "suspicious_activity", "confidence": 0.95, "summary": "Person holding a handgun.", "weapon_detected": true}'
-        parsed = VLMClient._parse_json_response(raw_text)
-        self.assertIsNotNone(parsed)
-        self.assertTrue(parsed.get("weapon_detected", False))
-        self.assertIn("[WEAPON DETECTED]", parsed["summary"])
-
-    def test_fallback_summary_does_not_mention_weapon(self):
+    def test_parse_json_response_with_think_tags(self):
         client = VLMClient()
-        fallback = client._make_fallback("suspicious_activity")
-        self.assertNotIn("weapon", fallback["summary"].lower())
+        raw_text = "<think>Let me see if person is down. Yes.</think>\n" \
+                   '{"verdict": "yes", "observation": "A person lying flat on the floor", "tags": ["medical_emergency"]}'
+        # Strip thinking tag
+        import re
+        clean_text = re.sub(r"<think>[\s\S]*?</think>", "", raw_text, flags=re.IGNORECASE).strip()
+        parsed = client._parse_json_response(clean_text)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.get("verdict"), "yes")
+        self.assertIn("lying flat", parsed.get("observation", ""))
+        self.assertEqual(parsed.get("tags"), ["medical_emergency"])
+
+    def test_vlm_rejection_on_no_verdict(self):
+        client = VLMClient()
+        # Candidate with no frames -> drops immediately
+        cand = {
+            "category_hint": "person_down",
+            "camera_id": "cam1",
+            "frames": [],
+        }
+        res = client.describe_event(cand)
+        self.assertFalse(res["verified"])
+        self.assertEqual(res["confidence"], 0.0)
 
     def test_vlm_fifo_queue_processing(self):
         import time
