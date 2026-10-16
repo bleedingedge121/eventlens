@@ -64,6 +64,13 @@ class TestCameraAPI(unittest.TestCase):
         self.assertTrue(len(res.content) > 0)
         self.assertIn(b"--frame", res.content)
 
+    def test_lifespan_startup_and_teardown(self):
+        with TestClient(app) as client:
+            res = client.get("/api/health")
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.json(), {"ok": True})
+
 
 if __name__ == "__main__":
     unittest.main()
+

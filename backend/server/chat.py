@@ -246,6 +246,15 @@ SQL:"""
 
         breakdown = ", ".join(f"{cnt} {cat}" for cat, cnt in cat_counts.items())
 
+        is_report = any(w in question.lower() for w in ["report", "summary", "briefing", "overview"])
+        if is_report and count > 0:
+            return (
+                f"Security Incident Report ({count} event{'s' if count != 1 else ''} found: {breakdown}). "
+                f"Most recent recorded incident: [ID #{latest['id']} on {latest['camera_id']} at {latest['timestamp']}] "
+                f"\"{latest['summary']}\". "
+                f"(Click the 'Report' button on the main dashboard for complete printable PDF, CSV, and full intelligence breakdown)."
+            )
+
         answer = (
             f"Found {count} matching event{'s' if count != 1 else ''} ({breakdown}). "
             f"Most recent: [ID #{latest['id']} on {latest['camera_id']} at {latest['timestamp']}] "

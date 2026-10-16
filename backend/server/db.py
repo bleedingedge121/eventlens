@@ -164,7 +164,7 @@ class Database:
             params.append(since)
 
         query += " ORDER BY id DESC LIMIT ?"
-        params.append(min(limit, 100))
+        params.append(min(limit, 10000))
 
         with self._connection() as conn:
             cursor = conn.cursor()
