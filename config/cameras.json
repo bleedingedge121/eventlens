@@ -104,5 +104,33 @@
     "person_down_aspect_ratio_threshold": 1.15,
     "fighting_overlap_iou": 0.38,
     "fighting_speed_threshold_pixels_per_sec": 105.0
+  },
+  "cam3": {
+    "name": "CAM03 - Gate 1",
+    "description": "",
+    "scene_profile": "indoor_premises",
+    "door_zone": [
+      [
+        180,
+        240
+      ],
+      [
+        420,
+        240
+      ],
+      [
+        420,
+        480
+      ],
+      [
+        180,
+        480
+      ]
+    ],
+    "restricted_zones": [],
+    "crowd_threshold": 7,
+    "tailgating_time_window_seconds": 1.8,
+    "fighting_overlap_iou": 0.38,
+    "fighting_speed_threshold_pixels_per_sec": 105.0
   }
 }
