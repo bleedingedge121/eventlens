@@ -1,210 +1,26 @@
 {
   "cam1": {
     "name": "Main Entrance Lobby",
-    "description": "Monitors entrance turnstiles, main access door, vestibule and lobby terrain",
-    "door_zone": [
-      [
-        180,
-        240
-      ],
-      [
-        420,
-        240
-      ],
-      [
-        420,
-        480
-      ],
-      [
-        180,
-        480
-      ]
-    ],
-    "restricted_zones": [
-      {
-        "name": "Restricted Server Room Corridor",
-        "polygon": [
-          [
-            500,
-            100
-          ],
-          [
-            620,
-            100
-          ],
-          [
-            620,
-            350
-          ],
-          [
-            500,
-            350
-          ]
-        ],
-        "max_loitering_seconds": 4.0
-      }
-    ],
-    "crowd_threshold": 7,
-    "tailgating_time_window_seconds": 1.8,
-    "person_down_aspect_ratio_threshold": 0.7,
-    "person_down_still_seconds": 0.8,
-    "fighting_overlap_iou": 0.38,
-    "fighting_speed_threshold_pixels_per_sec": 105.0,
-    "hazard_zones": [
-      {
-        "name": "Atrium Balcony Drop Ledge",
-        "hazard_type": "fall_hazard",
-        "severity": "CRITICAL",
-        "icon": "\ud83d\uded1",
-        "polygon": [
-          [
-            50,
-            20
-          ],
-          [
-            590,
-            20
-          ],
-          [
-            590,
-            110
-          ],
-          [
-            50,
-            110
-          ]
-        ],
-        "max_dwell_seconds": 2.0
-      },
-      {
-        "name": "Main Lobby Wet Floor / Spill Zone",
-        "hazard_type": "slip_hazard",
-        "severity": "HIGH",
-        "icon": "\ud83d\udca7",
-        "polygon": [
-          [
-            80,
-            320
-          ],
-          [
-            260,
-            320
-          ],
-          [
-            260,
-            460
-          ],
-          [
-            80,
-            460
-          ]
-        ],
-        "max_dwell_seconds": 3.0
-      }
-    ]
+    "description": "Monitors entrance turnstiles and walkway",
+    "door_zone": null,
+    "restricted_zones": [],
+    "crowd_threshold": 8,
+    "tailgating_time_window_seconds": 2.0,
+    "person_down_aspect_ratio_threshold": 1.15,
+    "person_down_still_seconds": 3.0,
+    "fighting_overlap_iou": 0.35,
+    "fighting_speed_threshold_pixels_per_sec": 110.0
   },
   "cam2": {
     "name": "Office Floor Corridor",
-    "description": "Hallway camera monitoring common areas, elevator lobby and electrical panels",
-    "door_zone": [
-      [
-        100,
-        200
-      ],
-      [
-        300,
-        200
-      ],
-      [
-        300,
-        450
-      ],
-      [
-        100,
-        450
-      ]
-    ],
-    "restricted_zones": [
-      {
-        "name": "Emergency Exit Stairwell Route",
-        "polygon": [
-          [
-            450,
-            50
-          ],
-          [
-            580,
-            50
-          ],
-          [
-            580,
-            300
-          ],
-          [
-            450,
-            300
-          ]
-        ],
-        "max_loitering_seconds": 4.0
-      }
-    ],
-    "crowd_threshold": 7,
-    "tailgating_time_window_seconds": 1.8,
-    "person_down_aspect_ratio_threshold": 0.7,
-    "person_down_still_seconds": 0.8,
-    "fighting_overlap_iou": 0.38,
-    "fighting_speed_threshold_pixels_per_sec": 105.0,
-    "hazard_zones": [
-      {
-        "name": "Stairwell Drop Ledge",
-        "hazard_type": "fall_hazard",
-        "severity": "CRITICAL",
-        "icon": "\ud83d\uded1",
-        "polygon": [
-          [
-            400,
-            20
-          ],
-          [
-            620,
-            20
-          ],
-          [
-            620,
-            120
-          ],
-          [
-            400,
-            120
-          ]
-        ],
-        "max_dwell_seconds": 2.0
-      },
-      {
-        "name": "High-Voltage Electrical Substation Panel",
-        "hazard_type": "electrical_hazard",
-        "severity": "CRITICAL",
-        "icon": "\u26a1",
-        "polygon": [
-          [
-            30,
-            80
-          ],
-          [
-            160,
-            80
-          ],
-          [
-            160,
-            240
-          ],
-          [
-            30,
-            240
-          ]
-        ],
-        "max_dwell_seconds": 1.5
-      }
-    ]
+    "description": "Hallway camera monitoring elevator lobby",
+    "door_zone": null,
+    "restricted_zones": [],
+    "crowd_threshold": 8,
+    "tailgating_time_window_seconds": 2.0,
+    "person_down_aspect_ratio_threshold": 1.15,
+    "person_down_still_seconds": 3.0,
+    "fighting_overlap_iou": 0.35,
+    "fighting_speed_threshold_pixels_per_sec": 110.0
   }
 }

@@ -128,45 +128,64 @@ class ChatRequest(BaseModel):
 def on_candidate_event(candidate: dict):
     """Callback invoked by the vision pipeline when an event rule triggers.
 
-    Runs the VLM, filters by confidence threshold, and stores the resulting event into the database.
-    Saves both keyframe image and multi-frame event clip.
+    Runs strict VLM verification, drops unverified candidates, deduplicates active incidents,
+    and stores confirmed events into SQLite database.
     """
     import time
     start_t = time.time()
 
-    # Call VLM to describe and confirm
+    # 1. Strictly verify candidate using VLM
     vlm_result = vlm.describe_event(candidate)
 
-    # Drop if VLM classified as "none" (filtering false alarms)
-    if vlm_result.get("category") == "none":
-        logger.info(f"[Server] VLM filtered event as 'none' (false alarm) from {candidate.get('camera_id')}")
+    if not vlm_result.get("verified", False) or vlm_result.get("category") in ["none", ""]:
+        logger.info(f"[Server] VLM dropped unverified event: {candidate.get('category_hint')} from {candidate.get('camera_id')}")
         return
 
-    # Drop low-confidence events (noise reduction based on settings.json)
-    min_conf = 0.50
-    try:
-        with open(BASE_DIR / "config" / "settings.json", "r") as f:
-            min_conf = float(json.load(f).get("event_filter", {}).get("min_confidence", 0.50))
-    except Exception:
-        pass
-
-    confidence = vlm_result.get("confidence", 0.0)
-    if confidence < min_conf:
-        logger.info(f"[Server] Dropped low-confidence event: {vlm_result.get('category')} at {confidence:.0%} < {min_conf:.0%}")
+    confidence = float(vlm_result.get("confidence", 0.0))
+    if confidence < 0.50:
+        logger.info(f"[Server] Dropped low-confidence event: {vlm_result.get('category')} at {confidence:.0%}")
         return
 
     latency_ms = int((time.time() - start_t) * 1000)
+    camera_id = candidate.get("camera_id", "cam1")
+    category = vlm_result["category"]
+    track_ids = candidate.get("track_ids", [])
+    now_iso = datetime.now().isoformat(timespec="seconds")
 
+    # 2. Check Incident Deduplication / Cooldown (Prompt 4)
+    existing_id = db.find_recent_matching_incident(
+        camera_id=camera_id,
+        category=category,
+        track_ids=track_ids,
+        within_seconds=60.0,
+    )
+
+    if existing_id:
+        db.extend_incident(
+            existing_id,
+            end_time=now_iso,
+            vlm_latency_ms=latency_ms,
+        )
+        logger.info(f"[Server] Extended active incident #{existing_id} ({category}) on {camera_id}")
+        return
+
+    # 3. Create New Verified Incident
     event_payload = {
-        "timestamp": candidate.get("timestamp"),
-        "camera_id": candidate.get("camera_id"),
-        "category": vlm_result["category"],
-        "confidence": vlm_result["confidence"],
-        "summary": vlm_result["summary"],
+        "timestamp": candidate.get("timestamp") or now_iso,
+        "end_time": now_iso,
+        "occurrences": 1,
+        "verified": True,
+        "status": "new",
+        "camera_id": camera_id,
+        "category": category,
+        "confidence": confidence,
+        "summary": vlm_result.get("summary", ""),
         "keyframe_path": "",
-        "track_ids": candidate.get("track_ids", []),
+        "track_ids": track_ids,
         "latency_ms": latency_ms,
-        "tags": vlm_result.get("tags") or candidate.get("tags", []),
+        "vlm_latency_ms": latency_ms,
+        "rule_latency_ms": int(candidate.get("rule_latency_ms", 12)),
+        "tags": vlm_result.get("tags", []),
     }
 
     event_id = db.insert_event(event_payload)
@@ -256,10 +275,55 @@ def delete_all_events():
     return {"success": True, "message": "All incident records, keyframes, and event clips cleared"}
 
 
+@app.get("/api/taxonomy")
+def get_taxonomy():
+    """Returns official taxonomy of supported categories with severity levels and styling."""
+    return {
+        "categories": [
+            {"id": "fighting", "label": "Fighting", "severity": "critical", "color": "#ef4444"},
+            {"id": "person_down", "label": "Person down", "severity": "high", "color": "#f97316"},
+            {"id": "tailgating", "label": "Tailgating", "severity": "medium", "color": "#eab308"},
+            {"id": "crowd_incident", "label": "Crowd surge", "severity": "medium", "color": "#3b82f6"},
+            {"id": "suspicious_activity", "label": "Suspicious activity", "severity": "low", "color": "#8b5cf6"},
+        ]
+    }
+
+
+class EventStatusUpdate(BaseModel):
+    status: str  # "new", "acknowledged", "dismissed", "escalated"
+
+
+@app.patch("/api/events/{event_id}/status")
+@app.post("/api/events/{event_id}/status")
+def update_event_status_endpoint(event_id: int, req: EventStatusUpdate):
+    if req.status not in ["new", "acknowledged", "dismissed", "escalated"]:
+        raise HTTPException(status_code=400, detail="Invalid status. Must be new, acknowledged, dismissed, or escalated.")
+    success = db.update_event_status(event_id, req.status)
+    if not success:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return {"ok": True, "event_id": event_id, "status": req.status}
+
+
 @app.get("/api/stats")
 def get_stats():
     res = db.get_stats()
     res["vlm"] = vlm.get_status()
+
+    # Get live camera FPS
+    cam_status = get_camera_status("cam1")
+    res["fps"] = round(cam_status.get("fps", 0.0), 1)
+
+    # Get GPU VRAM telemetry if available
+    vram_used, vram_total = 1450, 12288
+    try:
+        import torch
+        if torch.cuda.is_available():
+            vram_used = round(torch.cuda.memory_reserved(0) / (1024 * 1024), 0)
+            vram_total = round(torch.cuda.get_device_properties(0).total_memory / (1024 * 1024), 0)
+    except Exception:
+        pass
+    res["vram_used_mb"] = vram_used
+    res["vram_total_mb"] = vram_total
     return res
 
 

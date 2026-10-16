@@ -5,651 +5,472 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="EventLens — Industrial Video Intelligence, Classification & Querying">
   <title>EventLens | Security Operations Console</title>
-  <meta name="theme-color" content="#000000">
+  <meta name="theme-color" content="#090a0d">
   <meta name="color-scheme" content="dark">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23000'/%3E%3Crect x='10' y='10' width='12' height='12' fill='%23ef233c' transform='rotate(45 16 16)'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23090a0d'/%3E%3Crect x='10' y='10' width='12' height='12' fill='%23ef4444' transform='rotate(45 16 16)'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@500;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=1.3.0">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=2.0.0">
 </head>
 <body>
-  <a class="skip-link" href="#main">Skip to content</a>
-  <!-- Top Navigation Bar -->
-  <header class="navbar" role="banner">
-    <a href="index.html" class="brand" aria-label="EventLens Home">
-      <div class="brand-icon" aria-hidden="true">
-        <svg class="icon-svg icon-svg--lg" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="9"></circle>
-          <path d="M12 3v18"></path>
-          <path d="M3 12h18"></path>
-          <circle cx="12" cy="12" r="3"></circle>
-        </svg>
+  <a class="skip-link" href="#viewport">Skip to content</a>
+
+  <!-- Top Navigation & Global Stats Strip -->
+  <header class="app-header" role="banner">
+    <div class="brand-group">
+      <div class="brand-mark" aria-hidden="true">
+        <span class="brand-dot"></span>
       </div>
       <div class="brand-text">
-        <h1>EventLens</h1>
-        <span class="brand-sub">Security Operations Console</span>
+        <h1 class="brand-title">EventLens</h1>
+        <span class="brand-subtitle">Security Operations</span>
       </div>
-    </a>
+      <span id="demo-badge" class="badge-demo" style="display:none;">Demo data</span>
+    </div>
 
-    <div class="header-actions">
-      <!-- Audio Toggle -->
-      <button id="audio-toggle" class="icon-btn" aria-label="Toggle alert audio" title="Alert audio: ON (Key: M)">
-        <svg class="icon-svg" id="audio-icon" viewBox="0 0 24 24">
-          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-          <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-        </svg>
-        <span class="label">Audio On</span>
-        <span class="kbd-hint">M</span>
+    <!-- Slim Stats Strip (Verkada / Linear telemetry) -->
+    <div class="stats-strip" id="stats-strip" aria-label="System telemetry">
+      <div class="stat-item" title="Verified incidents today">
+        <span class="stat-label">Today</span>
+        <span class="stat-val" id="stat-today">0</span>
+      </div>
+      <span class="stat-sep">•</span>
+      <div class="stat-item" title="Open incidents requiring operator review">
+        <span class="stat-label">Open</span>
+        <span class="stat-val stat-val--open" id="stat-open">0</span>
+      </div>
+      <span class="stat-sep">•</span>
+      <div class="stat-item" title="Median end-to-end event verification latency">
+        <span class="stat-label">p50 Latency</span>
+        <span class="stat-val" id="stat-latency">— ms</span>
+      </div>
+      <span class="stat-sep">•</span>
+      <div class="stat-item" title="Live camera stream frame throughput">
+        <span class="stat-label">FPS</span>
+        <span class="stat-val" id="stat-fps">0.0</span>
+      </div>
+      <span class="stat-sep">•</span>
+      <div class="stat-item" title="Inference GPU VRAM allocation">
+        <span class="stat-label">VRAM</span>
+        <span class="stat-val" id="stat-vram">— / — GB</span>
+      </div>
+    </div>
+
+    <!-- Header Tools -->
+    <div class="header-tools">
+      <!-- Overlay Mode Selector -->
+      <div class="segmented-control" role="group" aria-label="Detection overlay mode">
+        <button id="btn-overlay-incidents" class="seg-btn active" title="Draw bounding boxes only on incident tracks">Incidents</button>
+        <button id="btn-overlay-all" class="seg-btn" title="Draw bounding boxes on all detected tracks">All tracks</button>
+        <button id="btn-overlay-off" class="seg-btn" title="Hide all bounding boxes">Off</button>
+      </div>
+
+      <!-- Sources & Developer Menu Drawer Toggle -->
+      <button id="btn-open-sources" class="action-btn" title="Video Sources, Benchmark Tests & Datasets">
+        <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        <span>Sources</span>
       </button>
 
-      <!-- Intelligence Report Generator Button -->
-      <button id="open-report" class="btn btn--primary" title="Generate Comprehensive Security Intelligence Report" style="padding: 6px 12px; font-size: 0.78rem;">
-        <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+      <!-- Audio Mute Toggle -->
+      <button id="audio-toggle" class="action-btn" aria-label="Toggle alert sound" title="Mute/Unmute audio (Key: M)">
+        <svg class="icon" id="audio-icon" viewBox="0 0 24 24"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      </button>
+
+      <!-- Security Intelligence Report -->
+      <button id="open-report" class="action-btn" title="Generate printable security report">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         <span>Report</span>
       </button>
 
-      <!-- System Telemetry Pulse -->
-      <div class="system-status" aria-live="polite">
-        <span class="status-indicator" aria-hidden="true"></span>
-        <span>Local Engine Active</span>
-      </div>
-
-      <!-- Primary Navigation -->
-      <nav class="nav-primary" aria-label="Primary navigation">
-        <a href="index.html" class="nav-link active" aria-current="page">
-          <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-            <line x1="8" y1="21" x2="16" y2="21"></line>
-            <line x1="12" y1="17" x2="12" y2="21"></line>
-          </svg>
-          Dashboard
-        </a>
-        <a href="chat.html" class="nav-link">
-          <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-          </svg>
-          Query AI
-        </a>
-      </nav>
+      <!-- Query AI Command Bar / Chat Button -->
+      <button id="btn-query-ai" class="action-btn action-btn--primary" title="Natural language query console (Cmd+K)">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>Query AI</span>
+        <kbd class="kbd">⌘K</kbd>
+      </button>
     </div>
   </header>
 
-  <!-- Main Workspace -->
-  <main id="main" tabindex="-1" class="workspace">
-    <!-- Telemetry Row -->
-    <section class="telemetry" aria-label="Operational Telemetry">
-      <div class="telemetry-card">
-        <div class="telemetry-header">
-          <span class="telemetry-label">Events Today</span>
-          <svg class="icon-svg" viewBox="0 0 24 24">
-            <path d="M12 20v-6M6 20V10M18 20V4"></path>
-          </svg>
+  <!-- 3-Column Operations Grid -->
+  <main class="console-layout">
+    <!-- LEFT RAIL: Cameras & System Diagnostics -->
+    <aside class="left-rail" aria-label="Camera feeds and system diagnostics">
+      <div class="rail-section">
+        <div class="rail-section-header">
+          <span class="rail-title">Cameras</span>
+          <button id="btn-add-camera" class="mini-btn" title="Add surveillance camera">+ Add</button>
         </div>
-        <span class="telemetry-value" id="stat-today">—</span>
-        <span class="telemetry-detail">Real-time incident detections</span>
-      </div>
-
-      <div class="telemetry-card">
-        <div class="telemetry-header">
-          <span class="telemetry-label">Avg VLM Latency</span>
-          <svg class="icon-svg" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="10"></circle>
-            <polyline points="12 6 12 12 16 14"></polyline>
-          </svg>
-        </div>
-        <span class="telemetry-value" id="stat-latency">— ms</span>
-        <span class="telemetry-detail">Trigger → VLM classification</span>
-      </div>
-
-      <div class="telemetry-card">
-        <div class="telemetry-header">
-          <span class="telemetry-label">Verified Events</span>
-          <svg class="icon-svg" viewBox="0 0 24 24">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-            <polyline points="22 4 12 14.01 9 11.01"></polyline>
-          </svg>
-        </div>
-        <span class="telemetry-value" id="stat-total">—</span>
-        <span class="telemetry-detail">SQLite audit database entries</span>
-      </div>
-
-      <div class="telemetry-card telemetry-card--accent">
-        <div class="telemetry-header">
-          <span class="telemetry-label">Pipeline Engine</span>
-          <svg class="icon-svg" viewBox="0 0 24 24">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-          </svg>
-        </div>
-        <span class="telemetry-value" id="stat-processing">Idle</span>
-        <span class="telemetry-detail" id="stat-processing-detail">YOLOv11 + ByteTrack status</span>
-      </div>
-    </section>
-
-    <!-- Operational Grid -->
-    <div class="console-grid">
-      <!-- Left Panel: Live Stream & Viewport -->
-      <section class="panel panel--video" aria-label="Live Camera Feed">
-        <header class="panel-header">
-          <div class="panel-title-group">
-            <span class="live-badge" aria-hidden="true">
-              <span class="live-dot"></span>
-              Live Feed
-            </span>
-            <h2>Surveillance Viewport</h2>
-          </div>
-          <div class="panel-controls">
-            <!-- Layout View Toggle -->
-            <div class="view-mode-group" role="group" aria-label="Viewport Layout" style="display:flex; gap:2px; background:rgba(255,255,255,0.04); padding:2px; border-radius:6px; border:1px solid var(--border-default);">
-              <button id="btn-view-single" class="control-btn active" title="Single Camera Focus (1x1)" style="padding:4px 8px; font-size:0.75rem;">
-                <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
-                <span>1x1</span>
-              </button>
-              <button id="btn-view-grid" class="control-btn" title="Multi-Camera Grid View (2x2)" style="padding:4px 8px; font-size:0.75rem;">
-                <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-                <span>Grid</span>
-              </button>
+        <div class="camera-list" id="camera-list" role="tablist">
+          <button class="camera-item active" data-cam="cam1" role="tab" aria-selected="true">
+            <span class="cam-status-dot online"></span>
+            <div class="cam-meta">
+              <span class="cam-name">CAM 01 — Main Lobby</span>
+              <span class="cam-desc">Turnstile & Entrance Walkway</span>
             </div>
+          </button>
+          <button class="camera-item" data-cam="cam2" role="tab" aria-selected="false">
+            <span class="cam-status-dot online"></span>
+            <div class="cam-meta">
+              <span class="cam-name">CAM 02 — Corridor</span>
+              <span class="cam-desc">Elevator Hallway</span>
+            </div>
+          </button>
+        </div>
+      </div>
 
-            <!-- Dynamic Camera Management Buttons -->
-            <button id="btn-add-camera" class="control-btn" title="Add New Surveillance Camera" style="color:var(--accent-cyan); border-color:rgba(56,189,248,0.4); padding:4px 8px; font-size:0.75rem;">
-              <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-              <span>+ Cam</span>
-            </button>
-            <button id="btn-del-camera" class="control-btn" title="Remove Active Camera from Console" style="color:#f43f5e; border-color:rgba(244,63,94,0.4); padding:4px 8px; font-size:0.75rem;">
-              <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-              <span>Del</span>
-            </button>
-
-            <button id="btn-quick-webcam" class="control-btn" title="Connect Local Webcam / Integrated Camera (Device 0)" style="border-color: rgba(16, 185, 129, 0.4); color: #34d399;">
-              <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-              <span class="label">Live Webcam</span>
-            </button>
-            <button id="zones-toggle" class="control-btn" aria-pressed="false" title="Toggle Detection Zones Overlay (Key: Z)">
-              <svg class="icon-svg" viewBox="0 0 24 24">
-                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-                <polyline points="2 17 12 22 22 17"></polyline>
-                <polyline points="2 12 12 17 22 12"></polyline>
-              </svg>
-              <span class="label">Zones</span>
-              <span class="control-state" id="zones-state">Off</span>
-              <span class="kbd-hint">Z</span>
-            </button>
-            <select id="camera-select" class="select" aria-label="Select Camera Stream">
-              <option value="cam1" selected>CAM 01 — Main Entrance Turnstile</option>
-              <option value="cam2">CAM 02 — Corridor & Stairwell</option>
-            </select>
+      <div class="rail-section" style="margin-top:auto;">
+        <div class="rail-section-header">
+          <span class="rail-title">System Diagnostics</span>
+        </div>
+        <div class="diagnostics-card">
+          <div class="diag-row">
+            <span class="diag-label">Edge GPU</span>
+            <span class="diag-val">RTX 5070 Ti (12GB)</span>
           </div>
-        </header>
+          <div class="diag-row">
+            <span class="diag-label">VLM Engine</span>
+            <span class="diag-val" id="diag-vlm-model">qwen3-vl:8b</span>
+          </div>
+          <div class="diag-row">
+            <span class="diag-label">Vision Model</span>
+            <span class="diag-val">YOLOv11s + ByteTrack</span>
+          </div>
+          <div class="diag-row">
+            <span class="diag-label">Audit DB</span>
+            <span class="diag-val">SQLite (WAL mode)</span>
+          </div>
+          <div class="diag-row">
+            <span class="diag-label">Processing</span>
+            <span class="diag-val diag-val--status" id="diag-pipeline-status">100% Offline Edge</span>
+          </div>
+        </div>
+      </div>
+    </aside>
 
-        <!-- Multi-Camera Matrix Grid View (Displayed when Grid View Active) -->
-        <div class="viewport-grid" id="viewport-grid" style="display:none;" aria-label="Multi-Camera Grid Matrix"></div>
-
-        <!-- Video Viewport -->
-        <div class="video-viewport" id="viewport">
+    <!-- CENTER PANEL: Video Viewport & Timeline Scrubber -->
+    <section class="center-panel" aria-label="Surveillance viewport and timeline">
+      <!-- Video Viewport -->
+      <div class="viewport-card" id="viewport">
+        <div class="video-container" id="video-container">
           <img id="stream" src="/stream/cam1" alt="Live surveillance feed" loading="eager">
-          <canvas id="zone-overlay" class="zone-canvas" aria-hidden="true"></canvas>
+          <canvas id="detection-canvas" class="detection-canvas" aria-hidden="true"></canvas>
 
-          <!-- Fallback overlay when stream is connecting -->
-          <div class="stream-offline-overlay" id="stream-fallback" aria-hidden="true">
+          <!-- Offline / Connecting Fallback -->
+          <div class="stream-fallback" id="stream-fallback" aria-hidden="true">
             <div class="spinner"></div>
-            <span class="stream-offline-text">Awaiting Video Stream Ingestion…</span>
+            <span>Connecting to camera stream…</span>
           </div>
 
-          <!-- Surveillance HUD -->
-          <div class="hud" aria-hidden="true">
-            <span class="hud-pill hud-pill--rec"><span class="rec-dot"></span>REC</span>
-            <span class="hud-pill" id="hud-camera">CAM: 1</span>
-            <span class="hud-pill" id="hud-fps">— FPS</span>
-            <span class="hud-pill" id="hud-time">00:00:00</span>
-            <span class="hud-pill hud-pill--ai" id="hud-ai"><span class="ai-dot"></span><span id="hud-ai-text">AI SCANNING</span></span>
+          <!-- Calm Minimal HUD Overlay -->
+          <div class="viewport-hud" aria-hidden="true">
+            <span class="hud-item hud-item--live"><span class="hud-dot"></span>LIVE</span>
+            <span class="hud-item" id="hud-cam-id">CAM 01</span>
+            <span class="hud-item" id="hud-pts">PTS 00:00:00</span>
+            <span class="hud-item" id="hud-frame">FRM #00000</span>
           </div>
 
-          <!-- Viewport Controls -->
-          <div class="viewport-toolbar">
-            <button id="snapshot" class="icon-btn" aria-label="Capture snapshot" title="Snapshot Frame">
-              <svg class="icon-svg" viewBox="0 0 24 24">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                <circle cx="12" cy="13" r="4"></circle>
-              </svg>
+          <!-- Viewport Action Overlay Toolbar -->
+          <div class="viewport-actions">
+            <button id="snapshot" class="icon-tool" title="Capture Snapshot Frame">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
             </button>
-            <button id="fullscreen" class="icon-btn" aria-label="Toggle fullscreen" title="Fullscreen (Key: F)">
-              <svg class="icon-svg" viewBox="0 0 24 24">
-                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
-              </svg>
+            <button id="fullscreen" class="icon-tool" title="Toggle Fullscreen (F)">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
             </button>
-          </div>
-
-          <!-- Active Problem Area Hazard Alert Banner -->
-          <div id="viewport-hazard-alert" class="viewport-hazard-alert" style="display:none;" aria-live="assertive">
-            <span class="hazard-alert-icon">⚠️</span>
-            <span id="viewport-hazard-text">ACTIVE TERRAIN VIOLATION</span>
           </div>
         </div>
 
-        <!-- Problem Areas & Dangerous Terrain Status Strip -->
-        <div class="terrain-status-bar" id="terrain-status-bar" aria-label="Camera Problem Areas and Dangerous Terrain Status">
-          <span style="color:var(--text-muted); font-size:0.65rem; text-transform:uppercase; letter-spacing:0.04em;">TERRAIN HAZARDS:</span>
-          <div id="terrain-badges-list" style="display:inline-flex; gap:6px; flex-wrap:wrap;"></div>
-        </div>
-
-        <!-- NVR Interactive Recording Scrubber Bar -->
-        <div class="nvr-scrubber-bar" id="nvr-scrubber" aria-label="NVR Recording Scrubber">
-          <div class="nvr-scrubber-controls">
-            <button id="nvr-step-back" class="control-btn" title="Step Back 10 Frames (←)">
-              <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+        <!-- Integrated Interactive Timeline & Recording Scrubber -->
+        <div class="timeline-bar">
+          <div class="timeline-controls">
+            <button id="nvr-step-back" class="scrub-btn" title="Step Back 10 Frames (←)">
+              <svg class="icon icon--sm" viewBox="0 0 24 24"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
             </button>
-            <button id="nvr-play-pause" class="control-btn" title="Pause / Resume Live Feed (Space)">
+            <button id="nvr-play-pause" class="scrub-btn" title="Pause / Play (Space)">
               <span id="nvr-play-icon">⏸</span>
             </button>
-            <button id="nvr-step-fwd" class="control-btn" title="Step Forward 10 Frames (→)">
-              <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+            <button id="nvr-step-fwd" class="scrub-btn" title="Step Forward 10 Frames (→)">
+              <svg class="icon icon--sm" viewBox="0 0 24 24"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
             </button>
-            <button id="nvr-live-snap" class="control-btn active" title="Jump to Live Stream Head">
-              <span class="live-dot" style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#ef233c; margin-right:4px;"></span>
+            <button id="nvr-live-snap" class="scrub-btn scrub-btn--live active" title="Jump to live head">
+              <span class="live-dot-subtle"></span>
               <span>LIVE</span>
             </button>
           </div>
 
-          <div class="nvr-track-wrapper">
-            <input type="range" id="nvr-slider" class="nvr-slider" min="0" max="1000" value="1000" step="1" title="Seek through recording buffer">
-            <div class="nvr-markers" id="nvr-markers"></div>
+          <div class="timeline-track-wrap">
+            <input type="range" id="nvr-slider" class="timeline-slider" min="0" max="1000" value="1000" step="1" title="Seek video recording buffer">
+            <div class="timeline-markers" id="timeline-markers" aria-hidden="true"></div>
           </div>
 
-          <div class="nvr-scrubber-telemetry">
-            <span id="nvr-pts-display" class="hud-pill" style="position:static; font-size:0.68rem;">PTS: 00:00:00</span>
-            <span id="nvr-frame-display" class="hud-pill" style="position:static; font-size:0.68rem;">FRM: #00000</span>
+          <div class="timeline-telemetry">
+            <span class="telemetry-pill" id="timeline-time-display">00:00:00</span>
           </div>
-        </div>
-
-        <!-- Quick Scenario Selection Bar -->
-        <div class="scenario-bar" role="group" aria-label="Benchmark Scenarios">
-          <span class="scenario-label">Synthetic Tests:</span>
-          <button class="scenario-btn" data-src="data/videos/test_tailgating.mp4" title="Tailgating test clip">
-            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg>
-            Tailgating
-          </button>
-          <button class="scenario-btn" data-src="data/videos/test_person_down.mp4" title="Person down test clip">
-            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>
-            Person Down
-          </button>
-          <button class="scenario-btn" data-src="data/videos/test_crowd.mp4" title="Crowd incident test clip">
-            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            Crowd
-          </button>
-          <button class="scenario-btn" data-src="data/videos/test_suspicious.mp4" title="Suspicious activity test clip">
-            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            Suspicious
-          </button>
-          <button class="scenario-btn" data-src="data/videos/test_normal.mp4" title="Normal activity baseline">
-            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            Normal
-          </button>
-          <button class="scenario-btn" data-src="0" title="Live USB/Integrated Webcam">
-            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-            Webcam (0)
-          </button>
-        </div>
-
-        <!-- HackHive Real Dataset Video Bar -->
-        <div class="scenario-bar" role="group" aria-label="Dataset Videos" style="border-top: 1px dashed var(--border-default); background: rgba(14, 165, 233, 0.04);">
-          <span class="scenario-label" style="color: var(--accent-cyan);"><span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--accent-cyan); margin-right:4px;"></span>Dataset (HackHive):</span>
-          <button class="scenario-btn" data-src="D:/ClaudeCode/HackHive/dataset/1.mp4" title="D:\ClaudeCode\HackHive\dataset\1.mp4">
-            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            1.mp4 (Group / Fight)
-          </button>
-          <button class="scenario-btn" data-src="D:/ClaudeCode/HackHive/dataset/WhatsApp Video 2026-10-16 at 1.29.28 AM.mp4" title="D:\ClaudeCode\HackHive\dataset\WhatsApp Video 2026-10-16 at 1.29.28 AM.mp4">
-            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            1.29.28 AM (Doorway)
-          </button>
-          <button class="scenario-btn" data-src="D:/ClaudeCode/HackHive/dataset/WhatsApp Video 2026-10-16 at 1.29.33 AM.mp4" title="D:\ClaudeCode\HackHive\dataset\WhatsApp Video 2026-10-16 at 1.29.33 AM.mp4">
-            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            1.29.33 AM (Perimeter)
-          </button>
-          <button class="scenario-btn" data-src="D:/ClaudeCode/HackHive/dataset/WhatsApp Video 2026-10-16 at 1.29.34 AM.mp4" title="D:\ClaudeCode\HackHive\dataset\WhatsApp Video 2026-10-16 at 1.29.34 AM.mp4">
-            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            1.29.34 AM (Crowd Gathering)
-          </button>
-        </div>
-
-        <!-- Custom Video Ingestion Bar -->
-        <div class="source-bar">
-          <input type="text" id="source-input" class="source-input" placeholder="Enter video path (e.g. data/videos/test1.mp4), RTSP URL, or '0' for webcam" autocomplete="off" spellcheck="false">
-          <button id="start-source" class="btn btn--primary">
-            <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            Start Ingestion
-          </button>
-        </div>
-      </section>
-
-      <!-- Right Panel: Classified Incidents Feed -->
-      <section class="panel panel--feed" aria-label="Classified Incidents Feed">
-        <header class="panel-header">
-          <div class="panel-title-group">
-            <h2>Classified Incidents</h2>
-            <span class="counter" id="feed-count" aria-live="polite">0</span>
-            <button id="clear-events" class="control-btn" title="Clear all incident records" style="padding: 2px 8px; font-size: 11px; margin-left: 8px;">
-              <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-              Clear
-            </button>
-          </div>
-          <div class="search-wrap" role="search">
-            <svg class="icon-svg search-icon" viewBox="0 0 24 24">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-            <input type="search" id="event-search" class="search-input" placeholder="Filter incidents (Key: /)" aria-label="Filter incidents">
-          </div>
-        </header>
-
-        <!-- Category Filter Tabs -->
-        <div class="filter-bar" role="group" aria-label="Filter by category">
-          <button class="filter-btn active" data-category="" aria-pressed="true">
-            All <span class="filter-count" id="count-all">0</span>
-          </button>
-          <button class="filter-btn" data-category="tailgating" aria-pressed="false">
-            Tailgating <span class="filter-count" id="count-tailgating">0</span>
-          </button>
-          <button class="filter-btn" data-category="person_down" aria-pressed="false">
-            Person Down <span class="filter-count" id="count-person_down">0</span>
-          </button>
-          <button class="filter-btn" data-category="fighting" aria-pressed="false">
-            Fighting <span class="filter-count" id="count-fighting">0</span>
-          </button>
-          <button class="filter-btn" data-category="crowd_incident" aria-pressed="false">
-            Crowd <span class="filter-count" id="count-crowd_incident">0</span>
-          </button>
-          <button class="filter-btn" data-category="suspicious_activity" aria-pressed="false">
-            Suspicious <span class="filter-count" id="count-suspicious_activity">0</span>
-          </button>
-          <button class="filter-btn" data-category="suicide_risk" aria-pressed="false">
-            Suicide / Fall <span class="filter-count" id="count-suicide_risk">0</span>
-          </button>
-          <button class="filter-btn" data-category="weapons" aria-pressed="false" style="border-color: rgba(244,63,94,0.4); color: #f43f5e;">
-            <span class="weapon-dot" style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#f43f5e; margin-right:3px;"></span>Weapons <span class="filter-count" id="count-weapons">0</span>
-          </button>
-          <button class="filter-btn" data-category="dangerous_terrain" aria-pressed="false" style="border-color: rgba(234,179,8,0.4); color: #eab308;">
-            ⚠️ Terrain <span class="filter-count" id="count-terrain">0</span>
-          </button>
-          <select id="confidence-filter" class="select" style="min-width: 125px; font-size: 0.72rem; padding: 2px 6px; margin-left: auto;" title="Filter incidents by minimum AI confidence threshold">
-            <option value="0">All Conf (0%+)</option>
-            <option value="0.5" selected>Verified (50%+)</option>
-            <option value="0.7">High Conf (70%+)</option>
-            <option value="0.85">Critical (85%+)</option>
-          </select>
-        </div>
-
-        <!-- Scrollable Event Feed -->
-        <div class="event-feed" id="event-feed" role="list" aria-label="Incident feed list">
-          <div class="empty-state">
-            <div class="spinner" aria-hidden="true"></div>
-            <span>Synchronizing incident ledger…</span>
-          </div>
-        </div>
-      </section>
-    </div>
-
-    <!-- Activity Timeline Panel -->
-    <section class="console-panel timeline-panel" aria-label="Activity Timeline">
-      <div class="panel-header">
-        <div class="panel-title-group">
-          <svg class="icon-svg" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 9l-5 5-4-4-6 6"/></svg>
-          <h2 class="panel-title">Activity Timeline</h2>
-          <span class="panel-subtitle">Temporal incident distribution; height = model confidence</span>
-        </div>
-        <div class="timeline-legend">
-          <span class="legend-item"><span class="legend-dot dot--baseline"></span>Baseline</span>
-          <span class="legend-item"><span class="legend-dot dot--incident"></span>Verified Incident</span>
-          <span class="legend-item"><span class="legend-dot dot--low-conf"></span>Low Confidence (&lt;60%)</span>
-        </div>
-        <div class="timeline-tabs" style="display:flex; gap:6px; margin-left:auto;">
-          <button id="tab-tl-combined" class="control-btn active" style="padding:2px 8px; font-size:0.72rem;">Combined</button>
-          <button id="tab-tl-multitrack" class="control-btn" style="padding:2px 8px; font-size:0.72rem;">Multi-Track Lanes</button>
-        </div>
-      </div>
-      <div class="panel-body timeline-body">
-        <div class="chart-container" id="timeline"></div>
-        <div class="timeline-swimlanes" id="timeline-swimlanes" style="display:none;"></div>
-      </div>
-    </section>
-    <div class="timeline-tooltip" id="tip" role="tooltip" hidden></div>
-
-    <!-- Distribution Section -->
-    <section class="distribution-grid" aria-label="Incident Distribution">
-      <div class="console-panel distribution-panel">
-        <div class="panel-header">
-          <div class="panel-title-group">
-            <svg class="icon-svg" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
-            <h2 class="panel-title">Incidents by Category</h2>
-          </div>
-        </div>
-        <div class="panel-body">
-          <div class="bars-container" id="bars-cat"></div>
-        </div>
-      </div>
-      <div class="console-panel distribution-panel">
-        <div class="panel-header">
-          <div class="panel-title-group">
-            <svg class="icon-svg" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
-            <h2 class="panel-title">Incidents by Camera</h2>
-          </div>
-        </div>
-        <div class="panel-body">
-          <div class="bars-container" id="bars-cam"></div>
         </div>
       </div>
     </section>
-  </main>
 
-  <!-- Incident Details Modal -->
-  <dialog class="modal" id="event-modal" aria-modal="true" aria-labelledby="modal-title">
-    <div class="modal-content">
-      <header class="modal-header">
-        <div class="modal-header-content">
-          <span class="badge" id="modal-category-badge"></span>
-          <h3 id="modal-title">Incident Details</h3>
+    <!-- RIGHT RAIL: Grouped Incidents Ledger -->
+    <aside class="right-rail" aria-label="Incident detection ledger">
+      <header class="incidents-header">
+        <div class="incidents-title-row">
+          <div class="title-with-count">
+            <h2 class="incidents-title">Incidents</h2>
+            <span class="incident-count" id="feed-count">0</span>
+          </div>
+          <button id="clear-events" class="clear-btn" title="Clear verified incident ledger">Clear</button>
         </div>
-        <button class="modal-close" id="modal-close" aria-label="Close modal (Esc)">
-          <svg class="icon-svg" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
+
+        <!-- Search & Filter Controls -->
+        <div class="search-box">
+          <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="search" id="event-search" class="search-field" placeholder="Search incidents (/)">
+        </div>
+
+        <!-- Dynamic Category Filter Tabs from /api/taxonomy -->
+        <div class="taxonomy-filters" id="taxonomy-filters" role="group" aria-label="Category filters">
+          <button class="filter-pill active" data-category="">All</button>
+          <button class="filter-pill" data-category="fighting">Fighting</button>
+          <button class="filter-pill" data-category="person_down">Person Down</button>
+          <button class="filter-pill" data-category="tailgating">Tailgating</button>
+          <button class="filter-pill" data-category="crowd_incident">Crowd</button>
+          <button class="filter-pill" data-category="suspicious_activity">Suspicious</button>
+        </div>
+
+        <!-- Incident Status Filter Bar -->
+        <div class="status-filters" role="group" aria-label="Incident status filters">
+          <button class="status-tab active" data-status="">All</button>
+          <button class="status-tab" data-status="new">New</button>
+          <button class="status-tab" data-status="acknowledged">Acknowledged</button>
+          <button class="status-tab" data-status="dismissed">Dismissed</button>
+        </div>
       </header>
 
-      <div class="modal-body">
-        <figure class="modal-image-wrapper">
-          <img id="modal-image" src="" alt="Event keyframe visualization">
-          <video id="modal-video-player" controls preload="metadata" style="display:none; width:100%; max-height:400px; border-radius:8px; background:#000;"></video>
-          <div id="modal-frame-caption" class="modal-frame-caption">
-            <span id="modal-caption-text">Primary Keyframe Analyzed by Qwen3-VL:8B</span>
-            <div style="display:flex; gap:6px; align-items:center;">
-              <button id="modal-btn-view-photo" class="control-btn active" style="padding:2px 6px; font-size:0.68rem;">Keyframe</button>
-              <button id="modal-btn-view-video" class="control-btn" style="padding:2px 6px; font-size:0.68rem;">▶ MP4 Clip</button>
-              <span id="modal-caption-tag" class="clip-thumb-tag" style="position:static;">KEYFRAME</span>
-            </div>
-          </div>
-        </figure>
+      <!-- Scrollable Grouped Incident List -->
+      <div class="incident-list" id="event-feed" role="list" aria-label="Verified incident list">
+        <div class="empty-state">
+          <div class="spinner"></div>
+          <span>Loading verified incidents…</span>
+        </div>
+      </div>
+    </aside>
+  </main>
 
-        <div id="modal-clips-container" style="display:none; margin: 12px 0 16px 0;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <span class="detail-label" style="font-size:0.75rem;">
-              <span>Temporal Clip Buffer Analyzed by AI</span>
-              <span id="modal-clips-count" style="font-family:var(--font-mono); color:var(--accent-cyan); font-size:0.7rem; margin-left:8px;"></span>
-            </span>
-            <div class="clip-player-controls" style="display:flex; gap:6px;">
-              <button id="btn-clip-prev" class="control-btn" style="padding:2px 8px; font-size:0.7rem;" title="Previous Frame">◀ Prev</button>
-              <button id="btn-clip-play" class="control-btn" style="padding:2px 8px; font-size:0.7rem; color:var(--accent-cyan);" title="Play through captured temporal clip">▶ Play Clip</button>
-              <button id="btn-clip-next" class="control-btn" style="padding:2px 8px; font-size:0.7rem;" title="Next Frame">Next ▶</button>
-            </div>
+  <!-- Incident Detail Slide-Over Drawer -->
+  <aside class="incident-drawer" id="incident-drawer" aria-hidden="true" aria-label="Incident details">
+    <div class="drawer-header">
+      <div class="drawer-title-group">
+        <span class="badge" id="drawer-category-badge">Incident</span>
+        <span class="drawer-incident-id" id="drawer-id">#—</span>
+        <span class="drawer-status-badge" id="drawer-status-badge">New</span>
+      </div>
+      <button class="drawer-close" id="drawer-close" aria-label="Close drawer">✕</button>
+    </div>
+
+    <div class="drawer-body">
+      <!-- Keyframe & Video Clip Preview -->
+      <div class="drawer-media">
+        <div class="media-preview-box">
+          <img id="drawer-keyframe" src="" alt="Incident keyframe snapshot" style="display:none;">
+          <video id="drawer-video" controls autoplay loop muted playsinline style="display:none;"></video>
+        </div>
+        <div class="media-toggle-tabs" id="drawer-media-tabs" style="display:none;">
+          <button id="btn-show-keyframe" class="tab-btn active">Snapshot</button>
+          <button id="btn-show-clip" class="tab-btn">Video Clip</button>
+        </div>
+      </div>
+
+      <!-- VLM Observation & Analysis -->
+      <div class="drawer-section">
+        <h4 class="drawer-section-title">VLM Observation</h4>
+        <p class="drawer-observation" id="drawer-summary">—</p>
+      </div>
+
+      <div class="drawer-section">
+        <h4 class="drawer-section-title">Verification Evidence</h4>
+        <div class="evidence-grid">
+          <div class="evidence-item">
+            <span class="evidence-label">Confidence</span>
+            <span class="evidence-value" id="drawer-confidence">—</span>
           </div>
-          <div id="modal-clips-strip" style="display:flex; gap:8px; overflow-x:auto; padding-bottom:6px;"></div>
+          <div class="evidence-item">
+            <span class="evidence-label">Camera</span>
+            <span class="evidence-value" id="drawer-camera">—</span>
+          </div>
+          <div class="evidence-item">
+            <span class="evidence-label">Timestamp</span>
+            <span class="evidence-value" id="drawer-time">—</span>
+          </div>
+          <div class="evidence-item">
+            <span class="evidence-label">Duration</span>
+            <span class="evidence-value" id="drawer-duration">Single occurrence</span>
+          </div>
+          <div class="evidence-item">
+            <span class="evidence-label">Involved Tracks</span>
+            <span class="evidence-value" id="drawer-tracks">—</span>
+          </div>
+          <div class="evidence-item">
+            <span class="evidence-label">Total Latency</span>
+            <span class="evidence-value" id="drawer-latency">— ms</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="drawer-section" id="drawer-tags-section" style="display:none;">
+        <h4 class="drawer-section-title">VLM Tags</h4>
+        <div class="drawer-tags-list" id="drawer-tags"></div>
+      </div>
+    </div>
+
+    <!-- Operator Actions Footer -->
+    <div class="drawer-footer">
+      <button class="btn btn--secondary" id="btn-action-dismiss" title="Dismiss incident as false alarm">Dismiss</button>
+      <button class="btn btn--secondary" id="btn-action-ack" title="Acknowledge incident">Acknowledge</button>
+      <button class="btn btn--primary" id="btn-action-escalate" title="Escalate threat to dispatch">Escalate</button>
+    </div>
+  </aside>
+
+  <!-- Sources & Developer Menu Drawer -->
+  <dialog class="modal-dialog" id="sources-dialog" aria-modal="true" aria-labelledby="sources-title">
+    <div class="dialog-content">
+      <header class="dialog-header">
+        <h3 id="sources-title" class="dialog-title">Video Sources & Developer Menu</h3>
+        <button class="dialog-close" id="sources-dialog-close">✕</button>
+      </header>
+
+      <div class="dialog-body">
+        <!-- Live Video Source Ingestion -->
+        <div class="form-group">
+          <label class="form-label" for="source-input">Custom Source Ingestion (File Path / RTSP / Webcam)</label>
+          <div class="input-with-button">
+            <input type="text" id="source-input" class="text-input" placeholder="e.g. data/videos/test_normal.mp4, rtsp://..., or 0 for webcam" spellcheck="false">
+            <button id="start-source" class="btn btn--primary">Start Ingestion</button>
+          </div>
         </div>
 
-        <div class="modal-details">
-          <div class="modal-row">
-            <span class="detail-label">VLM Synthesis Summary</span>
-            <p id="modal-summary" class="detail-value"></p>
+        <!-- Benchmark Synthetic Tests -->
+        <div class="dialog-section">
+          <h4 class="dialog-subtitle">Synthetic Tests</h4>
+          <div class="button-grid">
+            <button class="scenario-btn" data-src="data/videos/test_tailgating.mp4">Tailgating</button>
+            <button class="scenario-btn" data-src="data/videos/test_person_down.mp4">Person Down</button>
+            <button class="scenario-btn" data-src="data/videos/test_crowd.mp4">Crowd</button>
+            <button class="scenario-btn" data-src="data/videos/test_suspicious.mp4">Suspicious</button>
+            <button class="scenario-btn" data-src="data/videos/test_normal.mp4">Normal Baseline</button>
+            <button class="scenario-btn" data-src="0">Webcam (Device 0)</button>
           </div>
+        </div>
 
-          <div class="modal-meta">
-            <div class="meta-item">
-              <span class="meta-label">Camera ID</span>
-              <span id="modal-camera" class="meta-value mono"></span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Timestamp</span>
-              <span id="modal-timestamp" class="meta-value mono"></span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Confidence</span>
-              <span id="modal-confidence" class="meta-value mono"></span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">VLM Latency</span>
-              <span id="modal-latency" class="meta-value mono"></span>
-            </div>
-          </div>
-
-          <div class="modal-row">
-            <span class="detail-label">ByteTrack Target IDs</span>
-            <div id="modal-tracks" class="track-list"></div>
-          </div>
-
-          <div class="modal-row" id="modal-tags-row" style="display:none;">
-            <span class="detail-label">Security Tags</span>
-            <div id="modal-tags" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
-          </div>
-
-          <div class="modal-actions">
-            <button id="copy-event" class="btn">
-              <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-              Copy JSON
-            </button>
-            <a id="query-link" href="chat.html" class="btn btn--primary">
-              <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-              Ask AI About This Event
-            </a>
+        <!-- HackHive Real Dataset Video Clips -->
+        <div class="dialog-section">
+          <h4 class="dialog-subtitle">HackHive Dataset Clips</h4>
+          <div class="button-grid">
+            <button class="scenario-btn" data-src="D:/ClaudeCode/HackHive/dataset/1.mp4">1.mp4 (Group / Fight)</button>
+            <button class="scenario-btn" data-src="D:/ClaudeCode/HackHive/dataset/WhatsApp Video 2026-10-16 at 1.29.28 AM.mp4">1.29.28 AM (Doorway)</button>
+            <button class="scenario-btn" data-src="D:/ClaudeCode/HackHive/dataset/WhatsApp Video 2026-10-16 at 1.29.33 AM.mp4">1.29.33 AM (Perimeter)</button>
+            <button class="scenario-btn" data-src="D:/ClaudeCode/HackHive/dataset/WhatsApp Video 2026-10-16 at 1.29.34 AM.mp4">1.29.34 AM (Crowd Gathering)</button>
           </div>
         </div>
       </div>
     </div>
   </dialog>
 
-  <!-- Intelligence Report Generation Modal -->
-  <dialog class="modal modal--wide" id="report-modal" aria-modal="true" aria-labelledby="rep-title">
-    <div class="modal-content">
-      <header class="modal-header">
-        <div class="modal-header-content">
-          <h3 id="rep-title">Generate Intelligence Report</h3>
+  <!-- Docked Query AI Command Console Drawer -->
+  <dialog class="modal-dialog" id="query-dialog" aria-modal="true" aria-labelledby="query-title">
+    <div class="dialog-content dialog-content--lg">
+      <header class="dialog-header">
+        <div class="brand-group">
+          <svg class="icon icon--primary" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <h3 id="query-title" class="dialog-title">Conversational Query Console</h3>
         </div>
-        <button class="modal-close" id="rep-close" aria-label="Close modal (Esc)">
-          <svg class="icon-svg" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
+        <button class="dialog-close" id="query-dialog-close">✕</button>
       </header>
 
-      <form id="rep-form" class="report-form" autocomplete="off">
-        <h4>Operational Security Report Configuration</h4>
-        <p class="muted-text">Select reporting period, cameras, incident categories and level of detail for export.</p>
-        <div class="form-row-2">
-          <label class="form-field">
-            <span>Reporting Period</span>
-            <select id="rp-period" class="select-input">
-              <option value="all" selected>All recorded incidents</option>
-              <option value="86400000">Last 24 hours</option>
-              <option value="3600000">Last hour</option>
-              <option value="900000">Last 15 minutes</option>
-              <option value="today">Today</option>
-              <option value="custom">Custom range</option>
-            </select>
-          </label>
-          <label class="form-field">
-            <span>Detail Level</span>
-            <select id="rp-detail" class="select-input">
-              <option value="overview">Executive overview</option>
-              <option value="standard" selected>Standard operational report</option>
-              <option value="full">Comprehensive investigation report</option>
-            </select>
-          </label>
-        </div>
-        <div class="form-row-2" id="rp-custom" hidden>
-          <label class="form-field">
-            <span>From</span>
-            <input type="datetime-local" id="rp-from" class="text-input">
-          </label>
-          <label class="form-field">
-            <span>To</span>
-            <input type="datetime-local" id="rp-to" class="text-input">
-          </label>
-        </div>
-        <fieldset class="report-fieldset">
-          <legend>Monitored Cameras</legend>
-          <div class="checks-grid" id="rp-cams"></div>
-        </fieldset>
-        <fieldset class="report-fieldset">
-          <legend>Event Categories</legend>
-          <div class="checks-grid" id="rp-cats"></div>
-        </fieldset>
-        <fieldset class="report-fieldset">
-          <legend>Included Sections</legend>
-          <div class="checks-grid" id="rp-secs"></div>
-        </fieldset>
-        <label class="form-field">
-          <span>Additional Investigator Instructions</span>
-          <textarea id="rp-notes" class="text-input" rows="3" placeholder="Describe any specific incidents, patterns, or questions for the local AI narrative to analyze..."></textarea>
-        </label>
-        <div class="modal-actions" style="margin-top:12px;">
-          <button type="submit" class="btn btn--primary" id="rp-go">Generate Report</button>
-        </div>
-      </form>
+      <div class="dialog-body">
+        <form id="chat-form" class="query-form">
+          <div class="input-with-button">
+            <input type="text" id="chat-input" class="text-input" placeholder="Ask a security question (e.g. 'Show all fighting incidents from camera 1 today')" autocomplete="off">
+            <button type="submit" class="btn btn--primary">Ask</button>
+          </div>
+        </form>
 
-      <div id="rep-view" class="report-view" hidden></div>
+        <div class="query-presets">
+          <span class="preset-label">Suggested:</span>
+          <button class="preset-btn" data-q="Show all incidents from today">Today's incidents</button>
+          <button class="preset-btn" data-q="Show any fighting or person down incidents">Violence & falls</button>
+          <button class="preset-btn" data-q="What were the most frequent incidents?">Incident breakdown</button>
+        </div>
+
+        <div class="query-response" id="query-response" style="display:none;">
+          <div class="response-section">
+            <h5 class="response-heading">Answer</h5>
+            <p class="response-text" id="query-answer"></p>
+          </div>
+          <div class="response-section" id="query-sql-wrap">
+            <h5 class="response-heading">Generated Safe SQL</h5>
+            <code class="response-code" id="query-sql"></code>
+          </div>
+          <div class="response-section" id="query-events-wrap">
+            <h5 class="response-heading">Matching Records (<span id="query-event-count">0</span>)</h5>
+            <div class="query-events-list" id="query-events-list"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </dialog>
 
   <!-- Camera Management Modal -->
-  <dialog class="modal" id="camera-modal" aria-modal="true" aria-labelledby="cam-modal-title">
-    <div class="modal-content" style="max-width: 480px;">
-      <header class="modal-header">
-        <div class="modal-header-content">
-          <h3 id="cam-modal-title">Add Surveillance Camera Feed</h3>
-        </div>
-        <button class="modal-close" id="cam-modal-close" aria-label="Close modal (Esc)">
-          <svg class="icon-svg" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
+  <dialog class="modal-dialog" id="camera-modal" aria-modal="true" aria-labelledby="cam-modal-title">
+    <div class="dialog-content">
+      <header class="dialog-header">
+        <h3 id="cam-modal-title" class="dialog-title">Add Surveillance Camera</h3>
+        <button class="dialog-close" id="cam-modal-close">✕</button>
       </header>
-      <form id="cam-form" class="report-form" autocomplete="off">
-        <label class="form-field">
-          <span>Camera ID (unique slug, e.g. cam3, entrance_gate)</span>
-          <input type="text" id="cam-input-id" class="text-input" placeholder="cam3" required pattern="[A-Za-z0-9_\-]+">
-        </label>
-        <label class="form-field">
-          <span>Display Name / Location Description</span>
-          <input type="text" id="cam-input-name" class="text-input" placeholder="CAM 03 — Perimeter Gate East" required>
-        </label>
-        <label class="form-field">
-          <span>Video Source (File path, RTSP stream URL, or '0' for Webcam)</span>
-          <input type="text" id="cam-input-source" class="text-input" placeholder="data/videos/test3.mp4" required>
-        </label>
-        <label class="form-field">
-          <span>Camera Configuration Template</span>
-          <select id="cam-input-type" class="select-input">
-            <option value="turnstile">Turnstile / Entrance (Tailgating + Loitering)</option>
-            <option value="corridor">Corridor / Stairwell (Person Down + Hazard)</option>
-            <option value="open_zone">Open Courtyard / Yard (Crowd + Fighting)</option>
-            <option value="hazard">Rooftop / Balcony / Railing (Suicide Risk / Fall Hazard)</option>
-          </select>
-        </label>
-        <div class="modal-actions" style="margin-top:16px;">
-          <button type="button" class="btn" id="cam-modal-cancel">Cancel</button>
-          <button type="submit" class="btn btn--primary" id="cam-modal-save">Connect & Save Camera</button>
+      <form id="cam-form" class="dialog-body">
+        <div class="form-group">
+          <label class="form-label" for="cam-id-input">Camera ID</label>
+          <input type="text" id="cam-id-input" class="text-input" placeholder="e.g. cam3" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cam-name-input">Camera Name</label>
+          <input type="text" id="cam-name-input" class="text-input" placeholder="e.g. Perimeter Gate North" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cam-source-input">Video Source / RTSP Stream</label>
+          <input type="text" id="cam-source-input" class="text-input" placeholder="e.g. data/videos/test_tailgating.mp4 or rtsp://..." required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="cam-crowd-input">Crowd Threshold</label>
+          <input type="number" id="cam-crowd-input" class="text-input" value="8" min="5" max="50">
+        </div>
+        <div class="dialog-footer">
+          <button type="button" class="btn btn--secondary" id="cam-modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn--primary">Save Camera</button>
         </div>
       </form>
     </div>
   </dialog>
 
-  <!-- Toast Notifications Container -->
-  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <!-- Report Generator Modal -->
+  <dialog class="modal-dialog" id="report-modal" aria-modal="true" aria-labelledby="rep-title">
+    <div class="dialog-content dialog-content--lg">
+      <header class="dialog-header">
+        <h3 id="rep-title" class="dialog-title">Security Intelligence Report</h3>
+        <button class="dialog-close" id="rep-modal-close">✕</button>
+      </header>
+      <div class="dialog-body" id="report-view">
+        <div class="empty-state">
+          <div class="spinner"></div>
+          <span>Synthesizing intelligence report…</span>
+        </div>
+      </div>
+    </div>
+  </dialog>
 
-  <script type="module" src="lib.js"></script>
-  <script type="module" src="dashboard.js?v=1.3.0"></script>
-  <script type="module" src="fx.js"></script>
+  <!-- Audio Alert -->
+  <audio id="alert-sound" preload="none" src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcHCek3/DEkF5DTIq24O+1aE1VbJm208eZYkxWca/Y3bBoSEpjprLP1KBcR01sn7rUzZpmTFVwrtfdsGlJTWejsc7Un1tGS2ucutTNmmVMVnCv192waUlNZ6OxztSfW0ZLa5y61M2aZUxWcK/X3bBpSU1no7HO1J9bRktrnLrUzZplTFZwr9fdsGlJTWejsc7Un1tGS2ucutTNmmVMVnCv192waUlNZ6OxztSfW0ZLa5y61M2aZUxWcK/X3bBpSU1no7HO1J9bRktrnLrUzZplTFZwr9fdsGlJ"></audio>
+
+  <script src="dashboard.js?v=2.0.0"></script>
 </body>
 </html>

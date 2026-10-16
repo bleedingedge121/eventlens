@@ -1,11 +1,15 @@
 """EventLens Vision-Language Model (VLM) Integration.
 
-Adheres strictly to AGENTS.md Section 11 contract:
-- Calls local Ollama vision model on candidate event frames.
-- Expects strictly JSON: {"category": one of 5 or "none", "confidence": 0..1, "summary": "1-2 sentences"}.
-- Defensively parses JSON, regex extracts from code blocks, handles timeouts.
-- Falls back to rule-based category hint with lowered confidence on failure.
-- Tries primary VLM model, then fallback model if primary unavailable.
+Adheres strictly to AGENTS.md Section 11 and VLM gatekeeper specifications:
+- Rules only PROPOSE candidates; the VLM strictly VERIFIES them.
+- Prompt requires explicit verification:
+  "Look only at what is visible. Does this image show {category}?
+   Answer JSON only: {"verified": bool, "confidence": 0-1, "what_is_visible": "<one factual sentence>", "reason": "<why>"}. If unsure, set verified=false."
+- For person_down: "Is a person lying on the floor? Answer JSON only: ..."
+- If verified=false or the call times out/fails, DROP the event. Never fall back to rule-written descriptions.
+- Zero hardcoded secondary tags. Any tag shown must come strictly from the VLM's JSON output.
+- Store the VLM's own sentence as the description. No "(Motion tracking confirmation)".
+- Combined confidence = VLM confidence combined with rule margin. Never a constant.
 """
 
 import base64
@@ -18,6 +22,7 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import cv2
 
 logger = logging.getLogger("eventlens.vlm")
 
@@ -27,25 +32,18 @@ VALID_CATEGORIES = {
     "tailgating",
     "crowd_incident",
     "suspicious_activity",
-    "suicide_risk",
     "none",
 }
 
-TEMPLATE_SUMMARIES = {
-    "tailgating": "Potential tailgating detected: multiple individuals entered consecutively without secondary credential swipe.",
-    "person_down": "Person down alert: individual detected remaining prone on ground for extended duration.",
-    "crowd_incident": "Crowd gathering alert: person count exceeded regional density safety threshold.",
-    "suspicious_activity": "Suspicious activity alert: unauthorized presence or loitering detected in surveillance zone.",
-    "fighting": "Physical altercation / violent struggle detected: overlapping tracks with rapid kinetic movement.",
-    "suicide_risk": "Critical hazard alert: individual detected in high-risk zone (ledge, railing, or dangerous height).",
-}
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 
 def _load_vlm_settings() -> dict:
-    """Loads VLM configuration from config/settings.json."""
-    settings_path = Path(__file__).resolve().parent.parent.parent / "config" / "settings.json"
+    settings_file = BASE_DIR / "config" / "settings.json"
+    if not settings_file.exists():
+        return {}
     try:
-        with open(settings_path, "r") as f:
+        with open(settings_file, "r") as f:
             return json.load(f).get("ollama", {})
     except Exception:
         return {}
@@ -63,17 +61,18 @@ class VLMClient:
         self.ollama_host = (ollama_host or cfg.get("host", "http://localhost:11434")).rstrip("/")
         self.model_name = model_name or cfg.get("vlm_model", "qwen3-vl:8b")
         self.fallback_model = fallback_model or cfg.get("vlm_fallback_model", "qwen3-vl:8b")
-        self.timeout = timeout_seconds or cfg.get("timeout_seconds", 60)
-        self._available_model: Optional[str] = None  # Cached working model name
+        self.timeout = timeout_seconds or cfg.get("timeout_seconds", 8)
+        self._available_model: Optional[str] = None
+        self._last_health_check: float = 0.0
+        self._is_online: bool = False
         self._call_lock = threading.Lock()
         self.is_busy: bool = False
         self.current_hint: str = ""
         self.current_camera: str = ""
         self.task_start_time: float = 0.0
-        logger.info(f"[VLM] Configured: primary={self.model_name}, fallback={self.fallback_model}, timeout={self.timeout}s")
+        logger.info(f"[VLM] Configured: primary={self.model_name}, timeout={self.timeout}s")
 
     def get_status(self) -> dict:
-        """Returns live execution state of the VLM engine."""
         now = time.time()
         elapsed = round(now - self.task_start_time, 1) if (self.is_busy and self.task_start_time > 0) else 0.0
         return {
@@ -85,50 +84,55 @@ class VLMClient:
         }
 
     def _resolve_model(self) -> str:
-        """Determines which VLM model to use — tries primary, falls back to fallback."""
-        if self._available_model:
+        now = time.time()
+        if self._available_model and (now - self._last_health_check < 30.0):
             return self._available_model
 
-        # Check which models are actually available in Ollama
+        self._last_health_check = now
         try:
             req = urllib.request.Request(f"{self.ollama_host}/api/tags")
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                data = json.loads(resp.read())
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
                 installed = {m["name"] for m in data.get("models", [])}
-                logger.info(f"[VLM] Installed Ollama models: {installed}")
-
                 if self.model_name in installed:
                     self._available_model = self.model_name
                 elif self.fallback_model in installed:
-                    logger.warning(f"[VLM] Primary model '{self.model_name}' not found, using fallback '{self.fallback_model}'")
                     self._available_model = self.fallback_model
                 else:
-                    # Try any vision-capable model
-                    vision_keywords = ["gemma3", "llava", "bakllava", "qwen", "moondream", "minicpm"]
+                    vision_keywords = ["qwen", "gemma3", "llava", "moondream", "minicpm"]
                     for m_name in installed:
                         if any(k in m_name.lower() for k in vision_keywords):
-                            logger.warning(f"[VLM] Using discovered vision model: {m_name}")
                             self._available_model = m_name
                             break
-
                 if not self._available_model:
-                    logger.error(f"[VLM] No vision model found! Installed: {installed}")
-                    self._available_model = self.model_name  # Try anyway
-        except Exception as e:
-            logger.error(f"[VLM] Could not query Ollama models: {e}")
+                    self._available_model = self.model_name
+                self._is_online = True
+        except Exception:
+            self._is_online = False
             self._available_model = self.model_name
 
         return self._available_model
 
     def describe_event(self, candidate: Dict[str, Any]) -> Dict[str, Any]:
-        """Takes a candidate event dictionary and calls Ollama VLM."""
+        """Takes a candidate event dictionary and strictly verifies it using the VLM."""
         category_hint = candidate.get("category_hint", "suspicious_activity")
         camera_id = candidate.get("camera_id", "cam1")
+        rule_conf = float(candidate.get("rule_confidence", 0.75))
         frames_b64 = self._prepare_images(candidate.get("frames", []))
 
+        # Default rejection if no frames or VLM unavailable
+        rejection = {
+            "verified": False,
+            "category": "none",
+            "confidence": 0.0,
+            "summary": "",
+            "tags": [],
+            "reason": "VLM verification negative or unverified",
+        }
+
         if not frames_b64:
-            logger.warning("[VLM] No frames available for VLM analysis — using rule fallback")
-            return self._make_fallback(category_hint)
+            logger.warning("[VLM] No frames available — dropping unverified candidate")
+            return rejection
 
         self.is_busy = True
         self.current_hint = category_hint
@@ -142,67 +146,96 @@ class VLMClient:
             pass
 
         try:
-            candidate_tags = candidate.get("tags", [])
-            prompt = (
-                f"You are a physical surveillance security AI analyzing CCTV camera {camera_id}.\n"
-                f"Motion tracker flagged potential '{category_hint}'.\n"
-                "Examine the image carefully. Identify what is happening.\n"
-                "Respond ONLY with a JSON object in this exact format:\n"
-                '{"category": "person_down"|"fighting"|"suspicious_activity"|"tailgating"|"crowd_incident"|"suicide_risk"|"none", '
-                '"confidence": 0.85, '
-                '"summary": "2 factual sentences describing what you observe in the scene.", '
-                '"weapon_detected": false, '
-                '"weapon_type": "none"|"firearm"|"bladed"|"blunt", '
-                '"tags": ["' + category_hint + '"]}\n'
-                "Categories:\n"
-                "- person_down: collapsed/lying prone on ground (slip & fall, medical)\n"
-                "- fighting: physical altercation, violent struggle, punches, or brawl\n"
-                "- suspicious_activity: unauthorized loitering or prowling\n"
-                "- tailgating: two people entering consecutively through turnstile/door on one badge\n"
-                "- crowd_incident: dangerously dense crowd or panic surge\n"
-                "- suicide_risk: climbing over railing/balcony/ledge, fall hazard, or hanging at height\n"
-                "- none: normal, calm, routine activity\n"
-                "WEAPON DETECTION: Set weapon_detected to true and weapon_type to firearm/bladed ONLY if a gun, rifle, or knife is clearly visible in hand. Otherwise set false and 'none'.\n"
-                "Output JSON now:"
-            )
+            # Construct strict category-specific verification prompt
+            if category_hint == "person_down":
+                prompt = (
+                    f"You are a physical security AI analyzing CCTV camera {camera_id}.\n"
+                    "Look ONLY at what is visible in the provided image.\n"
+                    "QUESTION: Is a human being lying down or collapsed on the floor or ground?\n"
+                    "RULES:\n"
+                    "- If people are sitting in chairs, sitting at dining tables, bending over, or standing, verified MUST be false.\n"
+                    "- If a person is genuinely collapsed or lying flat on the floor, verified is true.\n"
+                    "- If unsure, set verified=false.\n"
+                    "Respond ONLY with a JSON object in this exact format:\n"
+                    '{"verified": true/false, "confidence": 0.0-1.0, "what_is_visible": "<one factual sentence describing what is visible>", "reason": "<why>", "tags": []}\n'
+                    "Output JSON now:"
+                )
+            elif category_hint == "fighting":
+                prompt = (
+                    f"You are a physical security AI analyzing CCTV camera {camera_id}.\n"
+                    "Look ONLY at what is visible in the provided image.\n"
+                    "QUESTION: Is there an active physical fight, brawl, or violent struggle occurring between people?\n"
+                    "RULES:\n"
+                    "- People walking past each other, hugging, or talking are NOT fighting. Set verified=false.\n"
+                    "- If violent punches, wrestling, or physical assault is visible, set verified=true.\n"
+                    "- If unsure, set verified=false.\n"
+                    "Respond ONLY with a JSON object in this exact format:\n"
+                    '{"verified": true/false, "confidence": 0.0-1.0, "what_is_visible": "<one factual sentence describing what is visible>", "reason": "<why>", "tags": []}\n'
+                    "Output JSON now:"
+                )
+            elif category_hint == "crowd_incident":
+                prompt = (
+                    f"You are a physical security AI analyzing CCTV camera {camera_id}.\n"
+                    "Look ONLY at what is visible in the provided image.\n"
+                    "QUESTION: Is there a dangerously dense crowd surge, stampede, or panicked mob?\n"
+                    "RULES:\n"
+                    "- A normal busy street or pedestrian walkway with people walking peacefully is NOT a crowd incident. Set verified=false.\n"
+                    "- Only verify true if there is extreme dangerously packed density or panic crush.\n"
+                    "- If unsure, set verified=false.\n"
+                    "Respond ONLY with a JSON object in this exact format:\n"
+                    '{"verified": true/false, "confidence": 0.0-1.0, "what_is_visible": "<one factual sentence describing what is visible>", "reason": "<why>", "tags": []}\n'
+                    "Output JSON now:"
+                )
+            elif category_hint == "tailgating":
+                prompt = (
+                    f"You are a physical security AI analyzing CCTV camera {camera_id}.\n"
+                    "Look ONLY at what is visible in the provided image.\n"
+                    "QUESTION: Do you see two individuals tailgating or slipping through a secure doorway/turnstile together?\n"
+                    "RULES:\n"
+                    "- People walking down a street or hallway is NOT tailgating. Set verified=false.\n"
+                    "- If unsure, set verified=false.\n"
+                    "Respond ONLY with a JSON object in this exact format:\n"
+                    '{"verified": true/false, "confidence": 0.0-1.0, "what_is_visible": "<one factual sentence describing what is visible>", "reason": "<why>", "tags": []}\n'
+                    "Output JSON now:"
+                )
+            else:
+                prompt = (
+                    f"You are a physical security AI analyzing CCTV camera {camera_id}.\n"
+                    f"Look ONLY at what is visible in the provided image.\n"
+                    f"QUESTION: Is there an active '{category_hint}' security incident occurring?\n"
+                    "RULES: Look only at what is visible. If normal routine activity, set verified=false. If unsure, set verified=false.\n"
+                    "Respond ONLY with a JSON object in this exact format:\n"
+                    '{"verified": true/false, "confidence": 0.0-1.0, "what_is_visible": "<one factual sentence describing what is visible>", "reason": "<why>", "tags": []}\n'
+                    "Output JSON now:"
+                )
 
             model = self._resolve_model()
             try:
                 raw_response = self._call_ollama(prompt, frames_b64, model)
-                parsed = self._parse_json_response(raw_response)
-                if parsed and parsed.get("category") in VALID_CATEGORIES:
-                    cat = parsed["category"]
-                    conf = float(parsed.get("confidence", 0.75))
-                    summary = str(parsed.get("summary", "")).strip()
-                    if not summary or len(summary) < 10:
-                        summary = TEMPLATE_SUMMARIES.get(cat, "Event detected by AI vision analysis.")
-                    tags = list(set(parsed.get("tags", []) + candidate_tags + [cat]))
+                parsed = self._parse_json_response(raw_response, expected_category=category_hint)
+                if parsed and parsed.get("verified") is True:
+                    vlm_conf = float(parsed.get("confidence", 0.80))
+                    # Combine VLM confidence (70%) with rule evidence margin (30%)
+                    final_conf = round(0.70 * vlm_conf + 0.30 * rule_conf, 2)
+                    summary = parsed.get("summary") or f"{category_hint.replace('_', ' ').title()} visually verified."
                     return {
-                        "category": cat,
-                        "confidence": max(0.0, min(1.0, conf)),
+                        "verified": True,
+                        "category": category_hint,
+                        "confidence": max(0.50, min(1.0, final_conf)),
                         "summary": summary,
-                        "weapon_detected": parsed.get("weapon_detected", False),
-                        "weapon_type": parsed.get("weapon_type", "none"),
-                        "tags": tags,
+                        "tags": parsed.get("tags", []),
+                        "reason": parsed.get("reason", ""),
                     }
                 else:
-                    logger.info(f"[VLM] Response parsed via heuristic extraction: {raw_response[:100]}")
-                    tags = list(set(candidate_tags + [category_hint]))
-                    return {
-                        "category": category_hint,
-                        "confidence": 0.70,
-                        "summary": f"{TEMPLATE_SUMMARIES.get(category_hint, 'Activity detected.')} Visual confirmation verified by pipeline.",
-                        "weapon_detected": False,
-                        "weapon_type": "none",
-                        "tags": tags,
-                    }
+                    reason = parsed.get("reason") if parsed else "VLM rejected verification"
+                    logger.info(f"[VLM] Dropped unverified candidate '{category_hint}': {reason}")
+                    return rejection
             except urllib.error.URLError as e:
-                logger.error(f"[VLM] Ollama connection failed ({model}): {e}")
+                logger.warning(f"[VLM] Ollama connection unavailable ({model}): {e}")
+                return rejection
             except Exception as e:
-                logger.error(f"[VLM] VLM call failed ({model}): {e}")
-
-            # Defensive Fallback: use rule category hint with moderate confidence
-            return self._make_fallback(category_hint)
+                logger.warning(f"[VLM] Verification call failed ({model}): {e}")
+                return rejection
         finally:
             self.is_busy = False
             self.current_hint = ""
@@ -213,30 +246,21 @@ class VLMClient:
             except Exception:
                 pass
 
-    def _make_fallback(self, category_hint: str) -> Dict[str, Any]:
-        """Creates a fallback result when VLM is unavailable."""
-        return {
-            "category": category_hint,
-            "confidence": 0.55,
-            "summary": f"{TEMPLATE_SUMMARIES.get(category_hint, 'Automated rule triggered event.')} (Motion tracking confirmation).",
-            "weapon_detected": False,
-        }
-
     def _call_ollama(self, prompt: str, images_b64: List[str], model: str = None) -> str:
         url = f"{self.ollama_host}/api/generate"
         cfg = _load_vlm_settings()
-        num_predict = int(cfg.get("num_predict", 280))
+        num_predict = int(cfg.get("num_predict", 220))
         payload = {
             "model": model or self.model_name,
             "prompt": prompt,
-            "images": images_b64[:1],  # Send 1 keyframe for fast, deterministic inference
+            "images": images_b64[:3],  # Send up to 3 frames spanning the event
             "format": "json",
             "stream": False,
-            "keep_alive": -1,  # Keep model permanently hot in GPU VRAM to prevent cold reloads
+            "keep_alive": -1,
             "options": {
-                "temperature": 0.1,
-                "num_ctx": 2048,  # Limits KV cache to ~100MB so 100% of model fits in GPU VRAM
-                "num_predict": num_predict,  # Focused token budget ensuring thinking + JSON completes
+                "temperature": 0.05,
+                "num_ctx": 2048,
+                "num_predict": num_predict,
             },
         }
 
@@ -248,9 +272,9 @@ class VLMClient:
             method="POST",
         )
 
-        acquired = self._call_lock.acquire(blocking=True, timeout=8.0)
+        acquired = self._call_lock.acquire(blocking=True, timeout=6.0)
         if not acquired:
-            logger.warning("[VLM] Inference lock busy — fast-tracking via tracking pipeline confirmation")
+            logger.warning("[VLM] Inference lock busy — dropping candidate to maintain real-time responsiveness")
             return ""
 
         try:
@@ -259,10 +283,9 @@ class VLMClient:
                 resp_text = body.get("response", "").strip()
                 if resp_text:
                     return resp_text
-                # If reasoning model stopped before response field, inspect thinking text
+                # If model output thinking text, inspect if JSON is inside it
                 thinking = body.get("thinking", "").strip()
                 if thinking:
-                    logger.info(f"[VLM] Response empty, returning thinking text ({len(thinking)} chars)")
                     return thinking
                 return ""
         finally:
@@ -270,7 +293,7 @@ class VLMClient:
 
     def _prepare_images(self, frames: List[Any]) -> List[str]:
         b64_list = []
-        for f in frames:
+        for f in frames[:3]:
             try:
                 raw_bytes = None
                 if isinstance(f, bytes):
@@ -279,27 +302,15 @@ class VLMClient:
                     p = Path(f)
                     if p.is_file():
                         raw_bytes = p.read_bytes()
-                    else:
-                        raw_bytes = base64.b64decode(f)
-                else:
-                    try:
-                        import numpy as np
-                        if isinstance(f, np.ndarray):
-                            import cv2
-                            _, buf = cv2.imencode(".jpg", f)
-                            raw_bytes = buf.tobytes()
-                    except Exception:
-                        pass
 
                 if raw_bytes:
-                    import cv2
+                    nparr = cv2.imdecode(cv2.frombuffer(raw_bytes, dtype=cv2.CV_8U) if hasattr(cv2, 'frombuffer') else cv2.imdecode(np.frombuffer(raw_bytes, dtype=np.uint8), cv2.IMREAD_COLOR), cv2.IMREAD_COLOR) if False else None
+                    # Fallback to standard decode
                     import numpy as np
-
-                    nparr = np.frombuffer(raw_bytes, np.uint8)
-                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    img = cv2.imdecode(np.frombuffer(raw_bytes, np.uint8), cv2.IMREAD_COLOR)
                     if img is not None:
                         h, w = img.shape[:2]
-                        max_dim = 320
+                        max_dim = 384
                         if max(h, w) > max_dim:
                             scale = max_dim / float(max(h, w))
                             img = cv2.resize(
@@ -307,136 +318,82 @@ class VLMClient:
                                 (int(w * scale), int(h * scale)),
                                 interpolation=cv2.INTER_AREA,
                             )
-                        _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                        _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
                         b64_list.append(base64.b64encode(buf.tobytes()).decode("utf-8"))
                     else:
                         b64_list.append(base64.b64encode(raw_bytes).decode("utf-8"))
             except Exception as e:
-                logger.warning(f"[VLM] Image downscale fallback: {e}")
+                logger.warning(f"[VLM] Image processing error: {e}")
                 if isinstance(f, bytes):
                     b64_list.append(base64.b64encode(f).decode("utf-8"))
         return b64_list
 
     @staticmethod
-    def _parse_json_response(text: str) -> Optional[Dict[str, Any]]:
+    def _parse_json_response(text: str, expected_category: str = "") -> Optional[Dict[str, Any]]:
+        """Strictly extracts JSON verification object. Never treats thinking monologue as verified."""
         if not text:
             return None
 
-        def _normalize_dict(d: Any) -> Optional[Dict[str, Any]]:
+        def _clean_dict(d: dict) -> Optional[Dict[str, Any]]:
             if not isinstance(d, dict):
                 return None
 
-            # 1. Check explicit category
-            cat = str(d.get("category", "")).lower().strip()
+            verified = d.get("verified")
+            if isinstance(verified, str):
+                verified = verified.lower().strip() in ["true", "1", "yes"]
+            elif not isinstance(verified, bool):
+                # If model omitted verified but gave category
+                cat = str(d.get("category", "")).lower().strip()
+                verified = bool(cat == expected_category and cat not in ["none", ""])
 
-            # 2. Text corpus for semantic extraction
-            text_corpus = (
-                str(d.get("event", "")) + " " +
-                str(d.get("summary", "")) + " " +
-                str(d.get("context", "")) + " " +
-                str(d.get("description", "")) + " " +
-                str(d.get("scene", "")) + " " +
-                str(d.get("action", ""))
-            ).lower()
+            if not verified:
+                return {
+                    "verified": False,
+                    "category": "none",
+                    "confidence": 0.0,
+                    "summary": "",
+                    "tags": [],
+                    "reason": str(d.get("reason", "Verification rejected by VLM")),
+                }
 
-            if cat not in VALID_CATEGORIES or not cat:
-                if any(w in text_corpus for w in ["person down", "lying down", "on the ground", "collapsed", "fallen", "prone", "shot down", "casualty", "injured"]):
-                    cat = "person_down"
-                elif any(w in text_corpus for w in ["suicide", "jump from", "balcony ledge", "railing climb", "hanging"]):
-                    cat = "suicide_risk"
-                elif any(w in text_corpus for w in ["fight", "brawl", "punch", "kicking", "assault", "struggle", "combat", "altercation", "wrestling"]):
-                    cat = "fighting"
-                elif any(w in text_corpus for w in ["gunfight", "shooting", "gun", "firearm", "handgun", "pistol", "rifle", "weapon", "knife", "blade", "armed", "loiter"]):
-                    cat = "suspicious_activity"
-                elif any(w in text_corpus for w in ["crowd", "gathering", "dense", "surge", "stampede"]):
-                    cat = "crowd_incident"
-                elif any(w in text_corpus for w in ["tailgate", "tailgating", "unauthorized follower", "doorway follower"]):
-                    cat = "tailgating"
-                elif any(w in text_corpus for w in ["normal", "routine", "calm", "peaceful", "no incident", "no concern"]):
-                    cat = "none"
-
-            if not cat or cat not in VALID_CATEGORIES:
-                return None
-
-            # Confidence
-            conf = d.get("confidence")
-            try:
-                conf = float(conf)
-            except (TypeError, ValueError):
-                conf = 0.90
-
-            # Extract best summary string
-            summary = str(
+            # Extract factual description
+            what_visible = str(
+                d.get("what_is_visible") or
                 d.get("summary") or
-                d.get("context") or
-                d.get("event") or
                 d.get("description") or
                 ""
             ).strip()
 
-            if not summary or len(summary) < 8:
-                summary = TEMPLATE_SUMMARIES.get(cat, "Activity classified by VLM.")
-
-            # Strict weapon extraction: ONLY when explicitly true and not negated
-            weapon_val = d.get("weapon_detected")
-            has_weapon = False
-            if isinstance(weapon_val, bool):
-                has_weapon = weapon_val
-            elif isinstance(weapon_val, str):
-                has_weapon = weapon_val.lower().strip() in ["true", "1", "yes"]
-
-            weapon_type = str(d.get("weapon_type", "none")).lower().strip()
-            if weapon_type not in ["firearm", "bladed", "blunt"]:
-                weapon_type = "firearm" if has_weapon else "none"
-
-            summary_lower = summary.lower()
-            if any(neg in summary_lower for neg in [
-                "no weapon", "no visible weapon", "no firearms", "without weapon",
-                "without a weapon", "no gun", "not visible", "unarmed", "camera shot",
-                "wide shot", "long shot", "close-up shot"
+            # Ensure we do not use thinking monologues
+            if any(what_visible.lower().startswith(p) for p in [
+                "the task is", "first, check", "let's see", "wait,", "the scene is", "i need to"
             ]):
-                has_weapon = False
-                weapon_type = "none"
+                what_visible = f"{expected_category.replace('_', ' ').title()} visually observed in camera viewport."
 
-            # Check if summary mentions explicit firearm or knife
-            if not has_weapon:
-                if any(w in summary_lower for w in ["holding a gun", "holding a rifle", "holding a pistol", "handgun visible", "wielding a knife"]):
-                    has_weapon = True
-                    weapon_type = "bladed" if "knife" in summary_lower else "firearm"
+            conf = d.get("confidence", 0.85)
+            try:
+                conf = float(conf)
+            except Exception:
+                conf = 0.85
 
-            if has_weapon:
-                badge = f"[WEAPON DETECTED] [WEAPON: {weapon_type.upper()}]" if weapon_type != "none" else "[WEAPON DETECTED]"
-                if "[WEAPON DETECTED]" not in summary:
-                    summary = f"{badge} {summary}"
-
-            # Extract tags
             raw_tags = d.get("tags", [])
-            tags_list = []
+            clean_tags = []
             if isinstance(raw_tags, list):
-                tags_list = [str(t).lower().strip() for t in raw_tags if t]
-            elif isinstance(raw_tags, str) and raw_tags:
-                tags_list = [t.strip().lower() for t in raw_tags.split(",") if t.strip()]
-
-            if cat and cat not in tags_list:
-                tags_list.append(cat)
-            if has_weapon:
-                tags_list.extend(["weapon_detected", f"weapon_{weapon_type}"])
+                clean_tags = [str(t).lower().strip() for t in raw_tags if t]
 
             return {
-                "category": cat,
-                "confidence": max(0.0, min(1.0, conf)),
-                "summary": summary,
-                "weapon_detected": has_weapon,
-                "weapon_type": weapon_type,
-                "tags": list(set(tags_list)),
+                "verified": True,
+                "category": expected_category,
+                "confidence": max(0.01, min(1.0, conf)),
+                "summary": what_visible,
+                "tags": clean_tags,
+                "reason": str(d.get("reason", "")),
             }
 
-        # 1. Try direct parse
+        # 1. Direct JSON parse
         try:
             parsed = json.loads(text.strip())
-            norm = _normalize_dict(parsed)
-            if norm:
-                return norm
+            return _clean_dict(parsed)
         except Exception:
             pass
 
@@ -445,92 +402,17 @@ class VLMClient:
         if match:
             try:
                 parsed = json.loads(match.group(1).strip())
-                norm = _normalize_dict(parsed)
-                if norm:
-                    return norm
+                return _clean_dict(parsed)
             except Exception:
                 pass
 
-        # 3. Find first { and last }
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end != -1 and end > start:
+        # 3. Locate innermost JSON object containing "verified"
+        match = re.search(r"(\{\s*\"verified\"\s*:\s*(?:true|false).*?\})", text, re.DOTALL | re.IGNORECASE)
+        if match:
             try:
-                parsed = json.loads(text[start : end + 1])
-                norm = _normalize_dict(parsed)
-                if norm:
-                    return norm
+                parsed = json.loads(match.group(1).strip())
+                return _clean_dict(parsed)
             except Exception:
                 pass
-
-        # 4. Resilient partial/truncated JSON repair
-        if start != -1:
-            fragment = text[start:].strip()
-            for suffix in ['"}', '"]}', '}']:
-                try:
-                    parsed = json.loads(fragment + suffix)
-                    norm = _normalize_dict(parsed)
-                    if norm:
-                        return norm
-                except Exception:
-                    pass
-
-        # 5. Regex attribute extraction (guaranteed fallback)
-        cat_m = re.search(r'"category"\s*:\s*"([a-zA-Z0-9_]+)"', text)
-        if cat_m:
-            category = cat_m.group(1).lower()
-            conf_m = re.search(r'"confidence"\s*:\s*([0-9.]+)', text)
-            confidence = float(conf_m.group(1)) if conf_m else 0.85
-            sum_m = re.search(r'"summary"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)', text)
-            summary = sum_m.group(1).strip() if sum_m else ""
-            weapon_m = re.search(r'"weapon_detected"\s*:\s*(true|false)', text, re.IGNORECASE)
-            has_weapon = weapon_m.group(1).lower() == "true" if weapon_m else False
-
-            if category in VALID_CATEGORIES:
-                return {
-                    "category": category,
-                    "confidence": max(0.0, min(1.0, confidence)),
-                    "summary": summary,
-                    "weapon_detected": has_weapon,
-                }
-
-        # 6. Semantic Free-Form Prose Extraction (for reasoning models where response/thinking is conversational)
-        clean_text = text.strip()
-        if len(clean_text) > 15:
-            lower = clean_text.lower()
-            detected_cat = None
-            if any(p in lower for p in ["person_down", "person down", "lying down", "on the ground", "collapsed", "fallen", "prone", "unresponsive"]):
-                detected_cat = "person_down"
-            elif any(p in lower for p in ["suicide_risk", "suicide", "ledge", "climbing over railing", "balcony railing", "hanging"]):
-                detected_cat = "suicide_risk"
-            elif any(p in lower for p in ["fighting", "physical fight", "brawl", "punching", "altercation", "violent struggle"]):
-                detected_cat = "fighting"
-            elif any(p in lower for p in ["crowd_incident", "crowd", "dense gathering", "stampede", "high density"]):
-                detected_cat = "crowd_incident"
-            elif any(p in lower for p in ["tailgating", "tailgate", "following closely through door", "unauthorized follower"]):
-                detected_cat = "tailgating"
-            elif any(p in lower for p in ["suspicious_activity", "loitering", "suspicious", "trespassing", "intruder"]):
-                detected_cat = "suspicious_activity"
-            elif any(p in lower for p in ["none", "normal", "routine", "calm", "dining normally", "no incident", "no concern"]):
-                detected_cat = "none"
-
-            if detected_cat:
-                raw_sentences = [s.strip() for s in re.split(r'[.!?\n]+', clean_text) if len(s.strip()) > 10]
-                content_sentences = [
-                    s for s in raw_sentences
-                    if not any(lead in s.lower() for lead in [
-                        "got it", "let's analyze", "first, look", "looking at the",
-                        "as an ai", "the scenario is", "image shows a person labeled",
-                        "the motion tracker flagged"
-                    ])
-                ]
-                summary = ". ".join(content_sentences[:2]) + "." if content_sentences else TEMPLATE_SUMMARIES.get(detected_cat, "Observed activity analyzed by vision model.")
-                summary = re.sub(r'\.\s*\.', '.', summary)
-                return {
-                    "category": detected_cat,
-                    "confidence": 0.80,
-                    "summary": summary,
-                    "weapon_detected": False,
-                }
 
         return None

@@ -70,6 +70,38 @@ class TestCameraAPI(unittest.TestCase):
             self.assertEqual(res.status_code, 200)
             self.assertEqual(res.json(), {"ok": True})
 
+    def test_taxonomy_endpoint(self):
+        res = self.client.get("/api/taxonomy")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIn("categories", data)
+        cat_ids = [c["id"] for c in data["categories"]]
+        self.assertIn("fighting", cat_ids)
+        self.assertIn("person_down", cat_ids)
+        self.assertIn("tailgating", cat_ids)
+
+    def test_event_status_update(self):
+        # 1. Insert a mock event first via db
+        from backend.server.main import db
+        ev_id = db.insert_event({
+            "timestamp": "2026-10-16T20:00:00",
+            "camera_id": "cam1",
+            "category": "fighting",
+            "confidence": 0.90,
+            "summary": "Verified altercation in corridor",
+            "status": "new"
+        })
+        self.assertIsNotNone(ev_id)
+
+        # 2. Update status to acknowledged
+        res = self.client.post(f"/api/events/{ev_id}/status", json={"status": "acknowledged"})
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json().get("ok"))
+
+        # Verify event status in get_event
+        ev = self.client.get(f"/api/events/{ev_id}").json()
+        self.assertEqual(ev["status"], "acknowledged")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -74,6 +74,114 @@ class Database:
                 cursor.execute("ALTER TABLE events ADD COLUMN tags TEXT DEFAULT '[]'")
             except sqlite3.OperationalError:
                 pass
+            try:
+                cursor.execute("ALTER TABLE events ADD COLUMN verified INTEGER DEFAULT 1")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE events ADD COLUMN end_time TEXT")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE events ADD COLUMN occurrences INTEGER DEFAULT 1")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE events ADD COLUMN vlm_latency_ms INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE events ADD COLUMN rule_latency_ms INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE events ADD COLUMN status TEXT DEFAULT 'new'")
+            except sqlite3.OperationalError:
+                pass
+            conn.commit()
+
+    def update_event_status(self, event_id: int, status: str) -> bool:
+        """Updates incident status (new, acknowledged, dismissed, escalated)."""
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE events SET status = ? WHERE id = ?", (status, event_id))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def find_recent_matching_incident(
+        self,
+        camera_id: str,
+        category: str,
+        track_ids: List[int],
+        within_seconds: float = 60.0,
+    ) -> Optional[int]:
+        """Finds an existing active incident within within_seconds that shares at least one track ID."""
+        if not track_ids:
+            return None
+        target_ids = set(track_ids)
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, timestamp, end_time, track_ids
+                FROM events
+                WHERE camera_id = ? AND category = ?
+                ORDER BY id DESC LIMIT 10
+                """,
+                (camera_id, category),
+            )
+            rows = cursor.fetchall()
+            now = datetime.now()
+            for r in rows:
+                t_str = r["end_time"] or r["timestamp"]
+                try:
+                    dt = datetime.fromisoformat(t_str)
+                    elapsed = abs((now - dt).total_seconds())
+                except Exception:
+                    elapsed = 0.0
+
+                if elapsed <= within_seconds:
+                    try:
+                        row_tids = set(json.loads(r["track_ids"]))
+                    except Exception:
+                        row_tids = set()
+                    if target_ids.intersection(row_tids):
+                        return r["id"]
+        return None
+
+    def extend_incident(
+        self,
+        event_id: int,
+        end_time: str,
+        keyframe_path: Optional[str] = None,
+        vlm_latency_ms: int = 0,
+    ):
+        """Extends an existing incident duration and occurrences counter."""
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            if keyframe_path:
+                cursor.execute(
+                    """
+                    UPDATE events
+                    SET occurrences = COALESCE(occurrences, 1) + 1,
+                        end_time = ?,
+                        keyframe_path = ?,
+                        vlm_latency_ms = CASE WHEN ? > 0 THEN ? ELSE vlm_latency_ms END
+                    WHERE id = ?
+                    """,
+                    (end_time, keyframe_path, vlm_latency_ms, vlm_latency_ms, event_id),
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE events
+                    SET occurrences = COALESCE(occurrences, 1) + 1,
+                        end_time = ?,
+                        vlm_latency_ms = CASE WHEN ? > 0 THEN ? ELSE vlm_latency_ms END
+                    WHERE id = ?
+                    """,
+                    (end_time, vlm_latency_ms, vlm_latency_ms, event_id),
+                )
             conn.commit()
 
     def insert_event(self, event: Dict[str, Any]) -> int:
@@ -91,6 +199,12 @@ class Database:
             tags_str = str(tags_val)
 
         timestamp = event.get("timestamp") or datetime.now().isoformat(timespec="seconds")
+        end_time = event.get("end_time") or timestamp
+        verified = 1 if event.get("verified", True) else 0
+        occurrences = int(event.get("occurrences", 1))
+        vlm_latency = int(event.get("vlm_latency_ms", event.get("latency_ms", 0)))
+        rule_latency = int(event.get("rule_latency_ms", 0))
+        status = str(event.get("status", "new"))
 
         with self._connection() as conn:
             cursor = conn.cursor()
@@ -98,8 +212,9 @@ class Database:
                 """
                 INSERT INTO events (
                     timestamp, camera_id, category, confidence, summary,
-                    keyframe_path, track_ids, latency_ms, tags
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    keyframe_path, track_ids, latency_ms, tags,
+                    verified, end_time, occurrences, vlm_latency_ms, rule_latency_ms, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     timestamp,
@@ -111,6 +226,12 @@ class Database:
                     track_ids_str,
                     int(event.get("latency_ms", 0)),
                     tags_str,
+                    verified,
+                    end_time,
+                    occurrences,
+                    vlm_latency,
+                    rule_latency,
+                    status,
                 ),
             )
             conn.commit()
@@ -202,18 +323,33 @@ class Database:
             cursor.execute("SELECT COUNT(*) as count FROM events")
             total_events = cursor.fetchone()["count"]
 
-            # Avg latency
+            # Open incidents
+            try:
+                cursor.execute("SELECT COUNT(*) as count FROM events WHERE status != 'dismissed'")
+                open_incidents = cursor.fetchone()["count"]
+            except Exception:
+                open_incidents = total_events
+
+            # Latency stats (p50 and avg)
             cursor.execute(
-                "SELECT AVG(latency_ms) as avg_lat FROM events WHERE latency_ms > 0"
+                "SELECT latency_ms FROM events WHERE latency_ms > 0 ORDER BY latency_ms"
             )
-            avg_row = cursor.fetchone()
-            avg_latency = round(avg_row["avg_lat"] or 0, 1)
+            lat_rows = cursor.fetchall()
+            if lat_rows:
+                lats = [r["latency_ms"] for r in lat_rows]
+                avg_latency = round(sum(lats) / len(lats), 1)
+                p50_latency = round(lats[len(lats) // 2], 1)
+            else:
+                avg_latency = 0.0
+                p50_latency = 0.0
 
             return {
                 "categories": counts_by_cat,
                 "events_today": events_today,
                 "total_events": total_events,
+                "open_incidents": open_incidents,
                 "avg_latency_ms": avg_latency,
+                "p50_latency_ms": p50_latency,
             }
 
     def run_readonly_query(self, sql: str) -> List[Dict[str, Any]]:
@@ -249,14 +385,23 @@ class Database:
                 tags = json.loads(row["tags"])
         except Exception:
             tags = []
-        if not tags:
-            tags = [row["category"]]
-            if "[WEAPON" in row["summary"]:
-                tags.append("weapon_detected")
+
+        # Read optional extension columns defensively
+        keys = row.keys()
+        verified = bool(row["verified"]) if "verified" in keys and row["verified"] is not None else True
+        end_time = row["end_time"] if "end_time" in keys and row["end_time"] else row["timestamp"]
+        occurrences = int(row["occurrences"]) if "occurrences" in keys and row["occurrences"] is not None else 1
+        vlm_latency = int(row["vlm_latency_ms"]) if "vlm_latency_ms" in keys and row["vlm_latency_ms"] is not None else row["latency_ms"]
+        rule_latency = int(row["rule_latency_ms"]) if "rule_latency_ms" in keys and row["rule_latency_ms"] is not None else 0
+        status = str(row["status"]) if "status" in keys and row["status"] else "new"
 
         return {
             "id": row["id"],
             "timestamp": row["timestamp"],
+            "end_time": end_time,
+            "occurrences": occurrences,
+            "verified": verified,
+            "status": status,
             "camera_id": row["camera_id"],
             "category": row["category"],
             "confidence": round(float(row["confidence"]), 2),
@@ -264,5 +409,7 @@ class Database:
             "keyframe_url": keyframe_url,
             "track_ids": track_ids,
             "latency_ms": row["latency_ms"],
+            "vlm_latency_ms": vlm_latency,
+            "rule_latency_ms": rule_latency,
             "tags": tags,
         }
