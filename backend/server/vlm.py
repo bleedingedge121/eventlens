@@ -226,6 +226,7 @@ class VLMClient:
             "keep_alive": -1,  # Keep model permanently hot in GPU VRAM to prevent cold reloads
             "options": {
                 "temperature": 0.1,
+                "num_ctx": 2048,  # Limits KV cache to ~100MB so 100% of model fits in GPU VRAM
                 "num_predict": num_predict,  # Focused token budget ensuring thinking + JSON completes
             },
         }
@@ -238,7 +239,12 @@ class VLMClient:
             method="POST",
         )
 
-        with self._call_lock:
+        acquired = self._call_lock.acquire(blocking=True, timeout=8.0)
+        if not acquired:
+            logger.warning("[VLM] Inference lock busy — fast-tracking via tracking pipeline confirmation")
+            return ""
+
+        try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
                 resp_text = body.get("response", "").strip()
@@ -250,6 +256,8 @@ class VLMClient:
                     logger.info(f"[VLM] Response empty, returning thinking text ({len(thinking)} chars)")
                     return thinking
                 return ""
+        finally:
+            self._call_lock.release()
 
     def _prepare_images(self, frames: List[Any]) -> List[str]:
         b64_list = []
@@ -282,7 +290,7 @@ class VLMClient:
                     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                     if img is not None:
                         h, w = img.shape[:2]
-                        max_dim = 416
+                        max_dim = 320
                         if max(h, w) > max_dim:
                             scale = max_dim / float(max(h, w))
                             img = cv2.resize(
