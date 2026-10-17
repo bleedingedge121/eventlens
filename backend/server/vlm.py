@@ -232,18 +232,21 @@ class VLMClient:
 
     def _make_fallback(self, category_hint: str) -> Dict[str, Any]:
         """Creates an honest unverified result when VLM is completely unavailable (Ollama offline)."""
-        return self._make_unverified_fallback(category_hint, reason="vlm_offline")
+        res = self._make_unverified_fallback(category_hint, reason="vlm_offline")
+        res["verification_status"] = "vlm_offline"
+        return res
 
     def _make_unverified_fallback(self, category_hint: str, reason: str = "unknown") -> Dict[str, Any]:
         """Creates an honest unverified result when VLM fails.
 
         FAIL CLOSED: Never marks event as verified or confirmed.
         """
+        reason_label = reason.upper().replace("_", " ")
         return {
             "is_incident": False,
             "category": category_hint,
             "confidence": 0.40,
-            "summary": f"[UNVERIFIED — {reason.upper()}] Candidate motion trigger for {category_hint}. AI verification failed ({reason}); not a verified incident.",
+            "summary": f"[UNVERIFIED - {reason_label}] Candidate motion trigger for {category_hint}. AI verification failed ({reason}); not a verified incident.",
             "weapon_detected": False,
             "weapon_type": "none",
             "tags": [category_hint, "unverified", f"unverified_{reason}"],
