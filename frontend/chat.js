@@ -18,8 +18,7 @@
     crowd_incident: { label: 'Crowd', badgeClass: 'badge--crowd_incident' },
     suspicious_activity: { label: 'Suspicious', badgeClass: 'badge--suspicious_activity' },
     suicide_risk: { label: 'Suicide / Fall Hazard', badgeClass: 'badge--suicide_risk' },
-    weapons: { label: 'Weapon Incident', badgeClass: 'badge--weapon' },
-    dangerous_terrain: { label: 'Terrain Hazard', badgeClass: 'badge--warning' }
+    weapons: { label: 'Weapon Incident', badgeClass: 'badge--weapon' }
   };
 
   // ============ DOM REFERENCES ============
@@ -149,9 +148,6 @@
           if (tl.includes('weapon') || tl.includes('firearm') || tl.includes('bladed') || tl.includes('blunt')) {
             chipClass += ' tag-chip--weapon';
             icon = '🔫';
-          } else if (tl.includes('hazard') || tl.includes('terrain') || tl.includes('slip') || tl.includes('fall') || tl.includes('electrical')) {
-            chipClass += ' tag-chip--hazard';
-            icon = '⚠️';
           } else if (tl.includes('tailgating') || tl.includes('passback')) {
             chipClass += ' tag-chip--tailgating';
             icon = '🚶‍♂️🚶‍♂️';
@@ -229,9 +225,6 @@
           if (tl.includes('weapon') || tl.includes('firearm') || tl.includes('bladed') || tl.includes('blunt')) {
             chipClass += ' tag-chip--weapon';
             icon = '🔫';
-          } else if (tl.includes('hazard') || tl.includes('terrain') || tl.includes('slip') || tl.includes('fall') || tl.includes('electrical')) {
-            chipClass += ' tag-chip--hazard';
-            icon = '⚠️';
           } else if (tl.includes('tailgating') || tl.includes('passback')) {
             chipClass += ' tag-chip--tailgating';
             icon = '🚶‍♂️🚶‍♂️';

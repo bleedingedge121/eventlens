@@ -6,8 +6,9 @@
   let currentCamera = 'cam1';
   let currentCategory = '';
   let searchQuery = '';
-  let minConfidence = 0.5;
-  let zonesVisible = false;
+  let confidenceFilterMode = 'high'; // 'high' | 'verified' | 'review' | 'rejected'
+  let highConfidenceThreshold = 0.75;
+  let minConfidenceThreshold = 0.50;
   let audioEnabled = true;
   let lastEventsSig = null;
   let lastEventId = 0;
@@ -23,19 +24,6 @@
   let isUserDraggingScrubber = false;
   let currentCameraMetrics = { frame_idx: 0, total_frames: 0, pts_sec: 0, is_paused: false, progress_ratio: 1.0 };
   let cameraConfigs = {};
-  let currentActiveHazards = [];
-
-  // Camera zone polygons (matches backend config/cameras.json)
-  const CAMERA_ZONES = {
-    cam1: {
-      doorZone: [[180, 240], [420, 240], [420, 480], [180, 480]],
-      restrictedZones: [{ name: 'Server Corridor', poly: [[500, 100], [620, 100], [620, 350], [500, 350]] }]
-    },
-    cam2: {
-      doorZone: [[100, 200], [300, 200], [300, 450], [100, 450]],
-      restrictedZones: [{ name: 'Emergency Stairwell', poly: [[450, 50], [580, 50], [580, 300], [450, 300]] }]
-    }
-  };
 
   // Category metadata for UI
   const CATEGORY_META = {
@@ -46,8 +34,18 @@
     suspicious_activity: { label: 'Suspicious', color: '#38bdf8', severity: 'notice', badgeClass: 'badge--suspicious_activity' },
     suicide_risk: { label: 'Suicide / Fall Hazard', color: '#c084fc', severity: 'critical', badgeClass: 'badge--suicide_risk' },
     weapons: { label: 'Weapon Incident', color: '#f43f5e', severity: 'critical', badgeClass: 'badge--weapon' },
-    dangerous_terrain: { label: 'Terrain Hazard', color: '#eab308', severity: 'warning', badgeClass: 'badge--warning' }
+    none: { label: 'VLM Rejected', color: '#64748b', severity: 'info', badgeClass: 'badge--info' }
   };
+
+  function getSeverityWeight(e) {
+    if (e.weapon_detected || (Array.isArray(e.tags) && e.tags.some(t => String(t).includes('weapon')))) return 4;
+    const meta = CATEGORY_META[e.category];
+    const sev = meta ? (meta.severity || '').toLowerCase() : '';
+    if (sev === 'critical') return 3;
+    if (sev === 'warning') return 2;
+    if (sev === 'notice' || sev === 'info') return 1;
+    return 0;
+  }
 
   // ============ DOM REFERENCES ============
   const $ = (sel, ctx = document) => ctx.querySelector(sel);
@@ -92,11 +90,8 @@
 
     cameraSelect: $('#camera-select'),
     quickWebcamBtn: $('#btn-quick-webcam'),
-    zonesToggle: $('#zones-toggle'),
-    zonesState: $('#zones-state'),
     streamImg: $('#stream'),
     streamFallback: $('#stream-fallback'),
-    zoneCanvas: $('#zone-overlay'),
     viewport: $('#viewport'),
     hudCamera: $('#hud-camera'),
     hudFps: $('#hud-fps'),
@@ -120,8 +115,7 @@
       crowd_incident: $('#count-crowd_incident'),
       suspicious_activity: $('#count-suspicious_activity'),
       suicide_risk: $('#count-suicide_risk'),
-      weapons: $('#count-weapons'),
-      dangerous_terrain: $('#count-terrain')
+      weapons: $('#count-weapons')
     },
     confidenceFilter: $('#confidence-filter'),
     eventFeed: $('#event-feed'),
@@ -248,154 +242,6 @@
     });
   };
 
-  // ============ ZONE OVERLAY RENDERING ============
-  function drawZones() {
-    const canvas = els.zoneCanvas;
-    const container = els.viewport;
-    if (!canvas || !container) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    const rect = container.getBoundingClientRect();
-
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
-
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, rect.width, rect.height);
-
-    if (!zonesVisible) return;
-
-    // Support live cameraConfigs from server, with fallback to CAMERA_ZONES
-    const config = cameraConfigs[currentCamera] || CAMERA_ZONES[currentCamera];
-    if (!config) return;
-
-    const scaleX = rect.width / 640;
-    const scaleY = rect.height / 480;
-
-    const drawPoly = (pts) => {
-      ctx.beginPath();
-      pts.forEach((pt, i) => {
-        const x = pt[0] * scaleX;
-        const y = pt[1] * scaleY;
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-      });
-      ctx.closePath();
-    };
-
-    // Door zone — Cyan dashed bounds
-    const doorZone = config.door_zone || config.doorZone;
-    if (doorZone) {
-      drawPoly(doorZone);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.lineWidth = 1.8;
-      ctx.setLineDash([5, 4]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      const [fx, fy] = doorZone[0];
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-      ctx.font = '600 10px "IBM Plex Mono", monospace';
-      ctx.fillText('DOOR ZONE // CH-01', fx * scaleX + 6, fy * scaleY + 14);
-    }
-
-    // Restricted zone — Rose dashed bounds
-    const restrictedZones = config.restricted_zones || config.restrictedZones;
-    if (restrictedZones) {
-      restrictedZones.forEach(z => {
-        const poly = z.polygon || z.poly;
-        if (!poly) return;
-        drawPoly(poly);
-        ctx.fillStyle = 'rgba(239, 35, 60, 0.08)';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(239, 35, 60, 0.85)';
-        ctx.lineWidth = 1.8;
-        ctx.setLineDash([5, 4]);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        const [fx, fy] = poly[0];
-        ctx.fillStyle = 'rgba(239, 35, 60, 0.95)';
-        ctx.font = '600 10px "IBM Plex Mono", monospace';
-        ctx.fillText((z.name || 'RESTRICTED').toUpperCase() + ' // RESTRICTED', fx * scaleX + 6, fy * scaleY + 14);
-      });
-    }
-
-    // Dangerous Terrain Hazard Zones — OSHA Diagonal Caution Hatching & Threat Badges
-    const hazardZones = config.hazard_zones || config.hazardZones;
-    if (hazardZones && hazardZones.length) {
-      hazardZones.forEach(hz => {
-        const poly = hz.polygon || hz.poly;
-        if (!poly) return;
-
-        const isCritical = (hz.severity || '').toUpperCase() === 'CRITICAL';
-        const activeOccupant = currentActiveHazards.find(a => a.zone_name === hz.name);
-        const isActiveViolation = !!activeOccupant;
-
-        // Create OSHA diagonal caution stripe pattern
-        const patCanvas = document.createElement('canvas');
-        patCanvas.width = 16;
-        patCanvas.height = 16;
-        const pctx = patCanvas.getContext('2d');
-        pctx.fillStyle = isActiveViolation
-          ? 'rgba(239, 35, 60, 0.22)'
-          : (isCritical ? 'rgba(245, 158, 11, 0.12)' : 'rgba(234, 179, 8, 0.10)');
-        pctx.fillRect(0, 0, 16, 16);
-        pctx.strokeStyle = isActiveViolation
-          ? 'rgba(239, 35, 60, 0.60)'
-          : (isCritical ? 'rgba(245, 158, 11, 0.38)' : 'rgba(234, 179, 8, 0.35)');
-        pctx.lineWidth = 3.5;
-        pctx.beginPath();
-        pctx.moveTo(0, 16);
-        pctx.lineTo(16, 0);
-        pctx.moveTo(-4, 4);
-        pctx.lineTo(4, -4);
-        pctx.moveTo(12, 20);
-        pctx.lineTo(20, 12);
-        pctx.stroke();
-
-        const pattern = ctx.createPattern(patCanvas, 'repeat');
-        drawPoly(poly);
-        ctx.fillStyle = pattern;
-        ctx.fill();
-
-        // Perimeter boundary line
-        ctx.lineWidth = isActiveViolation ? 2.8 : 1.8;
-        ctx.strokeStyle = isActiveViolation ? '#ef233c' : (isCritical ? '#f59e0b' : '#eab308');
-        ctx.setLineDash(isActiveViolation ? [] : [6, 4]);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Header label badge
-        const [fx, fy] = poly[0];
-        const icon = hz.icon || (isCritical ? '🛑' : '⚠️');
-        const dwellLimit = hz.max_dwell_seconds ? ` [MAX ${hz.max_dwell_seconds}s]` : '';
-        const statusLabel = isActiveViolation
-          ? `VIOLATION: #${activeOccupant.track_id} (${activeOccupant.dwell_sec}s)`
-          : `${(hz.severity || 'HAZARD').toUpperCase()}${dwellLimit}`;
-        const labelText = `${icon} ${hz.name.toUpperCase()} // ${statusLabel}`;
-
-        ctx.font = '600 10px "IBM Plex Mono", monospace';
-        const txtWidth = ctx.measureText(labelText).width;
-
-        // Label background badge
-        const lx = fx * scaleX + 6;
-        const ly = fy * scaleY + 6;
-        ctx.fillStyle = isActiveViolation ? 'rgba(239, 35, 60, 0.92)' : 'rgba(15, 23, 42, 0.88)';
-        ctx.fillRect(lx - 4, ly, txtWidth + 10, 16);
-        ctx.strokeStyle = isActiveViolation ? '#ff5c7a' : (isCritical ? '#f59e0b' : '#eab308');
-        ctx.lineWidth = 1;
-        ctx.strokeRect(lx - 4, ly, txtWidth + 10, 16);
-
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(labelText, lx, ly + 12);
-      });
-    }
-  }
 
   // ============ HUD CLOCK & TELEMETRY ============
   function updateClock() {
@@ -498,47 +344,6 @@
           els.nvrLiveSnap.classList.toggle('active', isLive);
         }
       }
-
-      // Update Active Dangerous Terrain / Hazard Overlays
-      currentActiveHazards = cam.active_hazards || [];
-      const alertEl = document.getElementById('viewport-hazard-alert');
-      const alertText = document.getElementById('viewport-hazard-text');
-      if (alertEl && alertText) {
-        if (currentActiveHazards.length > 0) {
-          const topHz = currentActiveHazards[0];
-          alertText.textContent = `${topHz.icon || '⚠️'} ${topHz.zone_name.toUpperCase()}: TARGET #${topHz.track_id} DWELLING ${topHz.dwell_sec}s / ${topHz.max_sec}s`;
-          alertEl.style.display = 'flex';
-          alertEl.classList.toggle('critical', topHz.severity === 'CRITICAL' || topHz.dwell_sec >= topHz.max_sec);
-        } else {
-          alertEl.style.display = 'none';
-        }
-      }
-
-      // Populate terrain status badges list
-      const terrainList = document.getElementById('terrain-badges-list');
-      if (terrainList) {
-        const camCfg = cameraConfigs[currentCamera] || {};
-        const hazardZones = camCfg.hazard_zones || [];
-        if (!hazardZones.length) {
-          terrainList.innerHTML = '<span style="color:var(--text-muted); font-size:0.65rem;">No terrain hazards configured for this camera</span>';
-        } else {
-          terrainList.innerHTML = hazardZones.map(hz => {
-            const active = currentActiveHazards.find(a => a.zone_name === hz.name);
-            const isActive = !!active;
-            const dwellInfo = isActive ? ` (${active.dwell_sec}s / #${active.track_id})` : ' [CLEAR]';
-            return `<span class="terrain-badge ${isActive ? 'terrain-badge--active' : ''}" title="${escapeHtml(hz.name)} - ${hz.severity}">
-              <span>${hz.icon || '⚠️'}</span>
-              <span>${escapeHtml(hz.name)}</span>
-              <span style="font-size:0.6rem; opacity:0.85;">${dwellInfo}</span>
-            </span>`;
-          }).join('');
-        }
-      }
-
-      // Redraw zones if active occupants present or changed
-      if (zonesVisible) {
-        drawZones();
-      }
     } catch (err) {
       if (err.name !== 'AbortError') throw err;
     }
@@ -555,19 +360,54 @@
         (typeof e.tags === 'string' && (e.tags.includes('weapon') || e.tags.includes('firearm') || e.tags.includes('bladed') || e.tags.includes('blunt'))) ||
         (e.summary && e.summary.toLowerCase().includes('weapon'))
       );
-    } else if (currentCategory === 'dangerous_terrain') {
-      filtered = filtered.filter(e =>
-        (Array.isArray(e.tags) && (e.tags.includes('dangerous_terrain') || e.tags.includes('fall_hazard') || e.tags.includes('slip_hazard') || e.tags.includes('electrical_hazard') || e.tags.includes('hazard'))) ||
-        (typeof e.tags === 'string' && (e.tags.includes('dangerous_terrain') || e.tags.includes('fall_hazard') || e.tags.includes('slip_hazard') || e.tags.includes('electrical_hazard') || e.tags.includes('hazard'))) ||
-        (e.summary && (e.summary.toLowerCase().includes('hazard') || e.summary.toLowerCase().includes('terrain') || e.summary.toLowerCase().includes('ledge') || e.summary.toLowerCase().includes('spill') || e.summary.toLowerCase().includes('electrical')))
-      );
     } else if (currentCategory) {
       filtered = filtered.filter(e => e.category === currentCategory);
     }
 
-    if (minConfidence > 0) {
-      filtered = filtered.filter(e => (e.confidence ?? 1) >= minConfidence);
+    // Filter by verification status & confidence mode
+    if (confidenceFilterMode === 'high') {
+      filtered = filtered.filter(e => {
+        const isRejected = e.category === 'none' ||
+          (Array.isArray(e.tags) && (e.tags.includes('rejected_by_vlm') || e.tags.includes('rejected')));
+        return !isRejected && (e.confidence ?? 0) >= highConfidenceThreshold;
+      });
+    } else if (confidenceFilterMode === 'verified') {
+      filtered = filtered.filter(e => {
+        const isRejected = e.category === 'none' ||
+          (Array.isArray(e.tags) && (e.tags.includes('rejected_by_vlm') || e.tags.includes('rejected')));
+        return !isRejected && (e.confidence ?? 0) >= minConfidenceThreshold;
+      });
+    } else if (confidenceFilterMode === 'review') {
+      filtered = filtered.filter(e => {
+        const isRejected = e.category === 'none' ||
+          (Array.isArray(e.tags) && (e.tags.includes('rejected_by_vlm') || e.tags.includes('rejected')));
+        // Below high confidence threshold, but VLM verified incident (category != 'none')
+        return !isRejected && (e.confidence ?? 0) < highConfidenceThreshold && (e.confidence ?? 0) >= (minConfidenceThreshold * 0.7);
+      });
+    } else if (confidenceFilterMode === 'rejected') {
+      filtered = filtered.filter(e => {
+        const isRejected = e.category === 'none' ||
+          (Array.isArray(e.tags) && (e.tags.includes('rejected_by_vlm') || e.tags.includes('rejected') || e.tags.includes('false_alarm') || e.tags.includes('low_confidence'))) ||
+          (e.summary && e.summary.toLowerCase().includes('rejected')) ||
+          ((e.confidence ?? 0) < minConfidenceThreshold);
+        return isRejected;
+      });
     }
+
+    // Sort by time, with a secondary sort by severity
+    filtered.sort((a, b) => {
+      const timeA = new Date(a.timestamp || 0).getTime();
+      const timeB = new Date(b.timestamp || 0).getTime();
+      if (timeA !== timeB) {
+        return timeB - timeA;
+      }
+      const sevA = getSeverityWeight(a);
+      const sevB = getSeverityWeight(b);
+      if (sevA !== sevB) {
+        return sevB - sevA;
+      }
+      return (b.confidence ?? 0) - (a.confidence ?? 0);
+    });
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(e =>
@@ -581,7 +421,7 @@
 
     els.feedCount.textContent = filtered.length;
 
-    // Update weapon & terrain counts on filter bar
+    // Update weapon counts on filter bar
     const countWeaponsEl = document.getElementById('count-weapons');
     if (countWeaponsEl) {
       const wCount = currentEvents.filter(e =>
@@ -591,15 +431,6 @@
         (e.summary && e.summary.toLowerCase().includes('weapon'))
       ).length;
       countWeaponsEl.textContent = wCount;
-    }
-    const countTerrainEl = document.getElementById('count-terrain');
-    if (countTerrainEl) {
-      const tCount = currentEvents.filter(e =>
-        (Array.isArray(e.tags) && (e.tags.includes('dangerous_terrain') || e.tags.includes('fall_hazard') || e.tags.includes('slip_hazard') || e.tags.includes('electrical_hazard') || e.tags.includes('hazard'))) ||
-        (typeof e.tags === 'string' && (e.tags.includes('dangerous_terrain') || e.tags.includes('fall_hazard') || e.tags.includes('slip_hazard') || e.tags.includes('electrical_hazard') || e.tags.includes('hazard'))) ||
-        (e.summary && (e.summary.toLowerCase().includes('hazard') || e.summary.toLowerCase().includes('terrain') || e.summary.toLowerCase().includes('ledge') || e.summary.toLowerCase().includes('spill') || e.summary.toLowerCase().includes('electrical')))
-      ).length;
-      countTerrainEl.textContent = tCount;
     }
 
     if (!filtered.length) {
@@ -644,9 +475,6 @@
         if (tl.includes('weapon') || tl.includes('firearm') || tl.includes('bladed') || tl.includes('blunt')) {
           chipClass += ' tag-chip--weapon';
           icon = '🔫';
-        } else if (tl.includes('hazard') || tl.includes('terrain') || tl.includes('slip') || tl.includes('fall') || tl.includes('electrical')) {
-          chipClass += ' tag-chip--hazard';
-          icon = '⚠️';
         } else if (tl.includes('tailgating') || tl.includes('passback')) {
           chipClass += ' tag-chip--tailgating';
           icon = '🚶‍♂️🚶‍♂️';
@@ -663,6 +491,9 @@
           <div class="event-body">
             <div class="event-meta">
               <span class="badge ${meta.badgeClass}">${meta.label}</span>
+              ${summaryText.includes('[RULE TRIGGER — VLM OFFLINE]') || summaryText.includes('[RULE TRIGGER — UNVERIFIED')
+                ? `<span class="badge" style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.4);" title="Triggered by motion rules; not verified by AI">⚠️ UNVERIFIED</span>`
+                : ''}
               ${weaponBadge}
               <span class="event-time" title="${formatTimestamp(ev.timestamp)}">${formatTime(ev.timestamp)}${formatRelativeTime(ev.timestamp) ? ` · ${formatRelativeTime(ev.timestamp)}` : ''}</span>
               <span class="event-camera">${escapeHtml(ev.camera_id)}</span>
@@ -1074,7 +905,6 @@
   function switchCamera(camId) {
     currentCamera = camId;
     if (els.streamImg) els.streamImg.src = `/stream/${encodeURIComponent(camId)}?t=${Date.now()}`;
-    drawZones();
     fetchEvents().catch(EL.report);
     fetchCameraTelemetry().catch(EL.report);
   }
@@ -1085,6 +915,13 @@
       if (res.ok) {
         const data = await res.json();
         cameraConfigs = data.cameras || data;
+        if (data.high_confidence_threshold !== undefined) {
+          highConfidenceThreshold = parseFloat(data.high_confidence_threshold) || 0.75;
+        }
+        if (data.min_confidence_threshold !== undefined) {
+          minConfidenceThreshold = parseFloat(data.min_confidence_threshold) || 0.50;
+        }
+        updateConfidenceFilterOption();
         updateCameraSelectDropdown();
         if (currentViewMode === 'grid') {
           renderGridView();
@@ -1095,6 +932,14 @@
       }
     } catch (err) {
       console.warn('Failed to load cameras config:', err);
+    }
+  }
+
+  function updateConfidenceFilterOption() {
+    if (!els.confidenceFilter) return;
+    const opt = els.confidenceFilter.querySelector('option[value="high"]');
+    if (opt) {
+      opt.textContent = `High confidence (\u2265${Math.round(highConfidenceThreshold * 100)}%)`;
     }
   }
 
@@ -1779,9 +1624,6 @@
           if (tl.includes('weapon') || tl.includes('firearm') || tl.includes('bladed') || tl.includes('blunt')) {
             chipClass += ' tag-chip--weapon';
             icon = '🔫';
-          } else if (tl.includes('hazard') || tl.includes('terrain') || tl.includes('slip') || tl.includes('fall') || tl.includes('electrical')) {
-            chipClass += ' tag-chip--hazard';
-            icon = '⚠️';
           } else if (tl.includes('tailgating') || tl.includes('passback')) {
             chipClass += ' tag-chip--tailgating';
             icon = '🚶‍♂️🚶‍♂️';
@@ -1949,14 +1791,6 @@
       <div class="spinner" style="width:12px;height:12px;border-width:2px;"></div>
       Connecting…`;
 
-    // If webcam source requested, auto-disable synthetic lobby overlay zones
-    const isWebcam = source === '0' || source.toLowerCase().includes('webcam');
-    if (isWebcam) {
-      zonesVisible = false;
-      if (els.zonesToggle) els.zonesToggle.setAttribute('aria-pressed', 'false');
-      if (els.zonesState) els.zonesState.textContent = 'Off';
-      drawZones();
-    }
 
     try {
       const res = await fetch('/api/source', {
@@ -1995,7 +1829,6 @@
     els.cameraSelect.addEventListener('change', e => {
       currentCamera = e.target.value;
       els.streamImg.src = `/stream/${currentCamera}?t=${Date.now()}`;
-      drawZones();
       fetchEvents().catch(EL.report);
       fetchCameraTelemetry().catch(EL.report);
     });
@@ -2039,14 +1872,6 @@
         }
       });
     }
-
-    // Zones toggle
-    els.zonesToggle.addEventListener('click', () => {
-      zonesVisible = !zonesVisible;
-      els.zonesToggle.setAttribute('aria-pressed', zonesVisible);
-      els.zonesState.textContent = zonesVisible ? 'On' : 'Off';
-      drawZones();
-    });
 
     // Audio toggle
     els.audioToggle.addEventListener('click', () => {
@@ -2104,10 +1929,10 @@
       });
     });
 
-    // Confidence threshold filter
+    // Confidence verification filter mode
     if (els.confidenceFilter) {
       els.confidenceFilter.addEventListener('change', e => {
-        minConfidence = parseFloat(e.target.value) || 0;
+        confidenceFilterMode = e.target.value || 'high';
         renderEvents();
       });
     }
@@ -2149,7 +1974,6 @@
         document.exitFullscreen();
       }
     });
-    document.addEventListener('fullscreenchange', () => setTimeout(drawZones, 200));
 
     // Modal close
     els.modalClose.addEventListener('click', closeModal);
@@ -2238,8 +2062,6 @@
       } else if (e.key === '/') {
         e.preventDefault();
         els.eventSearch.focus();
-      } else if (e.key === 'z' || e.key === 'Z') {
-        els.zonesToggle.click();
       } else if (e.key === 'm' || e.key === 'M') {
         els.audioToggle.click();
       } else if (e.key === '1') {
@@ -2277,8 +2099,6 @@
         }
       }
     });
-
-    window.addEventListener('resize', drawZones);
   }
 
   // ============ POLLING LOOP ============
@@ -2302,7 +2122,6 @@
     initHandlers();
     loadCamerasConfig();
     updateClock();
-    drawZones();
     startPolling();
     console.log('[EventLens] Dashboard initialized with SOC keyboard navigation');
   });

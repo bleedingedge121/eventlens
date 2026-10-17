@@ -16,3 +16,9 @@ clip_normal_03.mp4,none,0.0,Routine foot traffic at reception desk
 WhatsApp Video 2026-10-16 at 1.29.28 AM.mp4,person_down,2.7,Officer collapsed on floor after altercation in waiting room
 WhatsApp Video 2026-10-16 at 1.29.33 AM.mp4,person_down,1.6,Individual collapsed/slumped over on dark stairwell
 WhatsApp Video 2026-10-16 at 1.29.34 AM.mp4,fighting,0.1,Physical fight breaking out on outdoor restaurant patio with crowd reaction
+test_normal.mp4,none,0.0,Normal routine walking traffic in surveillance lobby
+test_person_down.mp4,person_down,2.5,Simulated person down collapse and prone stillness
+test_fighting.mp4,fighting,2.0,Simulated two-person physical tussle
+test_crowd.mp4,crowd_incident,1.0,Simulated high density crowd gathering
+test_suspicious.mp4,suspicious_activity,4.0,Simulated loitering in restricted zone
+test_tailgating.mp4,tailgating,1.5,Simulated successive door crossing entry violation

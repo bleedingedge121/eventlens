@@ -1,40 +1,162 @@
 {
+  "evaluated_clips_count": 10,
+  "missing_clips_count": 13,
   "classification": {
     "tailgating": {
       "precision": 1.0,
-      "recall": 0.667,
-      "f1": 0.8
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 1,
+      "fp": 0,
+      "fn": 0
     },
     "person_down": {
       "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0
+      "recall": 0.333,
+      "f1": 0.5,
+      "tp": 1,
+      "fp": 0,
+      "fn": 2
     },
     "fighting": {
-      "precision": 0.75,
-      "recall": 0.75,
-      "f1": 0.75
+      "precision": 1.0,
+      "recall": 0.667,
+      "f1": 0.8,
+      "tp": 2,
+      "fp": 0,
+      "fn": 1
     },
     "crowd_incident": {
-      "precision": 0.667,
-      "recall": 1.0,
-      "f1": 0.8
-    },
-    "suspicious_activity": {
       "precision": 0.0,
       "recall": 0.0,
-      "f1": 0.0
+      "f1": 0.0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 1
+    },
+    "suspicious_activity": {
+      "precision": 0.333,
+      "recall": 1.0,
+      "f1": 0.5,
+      "tp": 1,
+      "fp": 2,
+      "fn": 0
     }
   },
   "latency": {
-    "median_latency_ms": 338.7,
-    "p95_latency_ms": 419.9,
-    "mean_latency_ms": 345.6
+    "median_detection_latency_ms": 9.4,
+    "p95_detection_latency_ms": 184.0,
+    "sample_count": 17
   },
-  "vision_pipeline": {
-    "clips_evaluated": 4,
-    "total_frames_processed": 900,
-    "avg_inference_fps": 93.4,
-    "median_speedup_vs_realtime": 3.15
-  }
+  "clips": [
+    {
+      "clip_name": "1.mp4",
+      "true_category": "fighting",
+      "detected_category": "fighting",
+      "all_detected": [
+        "tailgating",
+        "fighting",
+        "crowd_incident"
+      ],
+      "result": "TP",
+      "frames": 262,
+      "inference_fps": 100.4
+    },
+    {
+      "clip_name": "WhatsApp Video 2026-10-16 at 1.29.28 AM.mp4",
+      "true_category": "person_down",
+      "detected_category": "none",
+      "all_detected": [],
+      "result": "FN",
+      "frames": 154,
+      "inference_fps": 111.5
+    },
+    {
+      "clip_name": "WhatsApp Video 2026-10-16 at 1.29.33 AM.mp4",
+      "true_category": "person_down",
+      "detected_category": "none",
+      "all_detected": [],
+      "result": "FN",
+      "frames": 291,
+      "inference_fps": 82.0
+    },
+    {
+      "clip_name": "WhatsApp Video 2026-10-16 at 1.29.34 AM.mp4",
+      "true_category": "fighting",
+      "detected_category": "fighting",
+      "all_detected": [
+        "suspicious_activity",
+        "fighting",
+        "suicide_risk",
+        "crowd_incident"
+      ],
+      "result": "TP",
+      "frames": 193,
+      "inference_fps": 98.1
+    },
+    {
+      "clip_name": "test_normal.mp4",
+      "true_category": "none",
+      "detected_category": "none",
+      "all_detected": [],
+      "result": "TN",
+      "frames": 80,
+      "inference_fps": 97.2
+    },
+    {
+      "clip_name": "test_person_down.mp4",
+      "true_category": "person_down",
+      "detected_category": "person_down",
+      "all_detected": [
+        "person_down"
+      ],
+      "result": "TP",
+      "frames": 80,
+      "inference_fps": 98.5
+    },
+    {
+      "clip_name": "test_fighting.mp4",
+      "true_category": "fighting",
+      "detected_category": "suspicious_activity",
+      "all_detected": [
+        "suspicious_activity"
+      ],
+      "result": "FN",
+      "frames": 80,
+      "inference_fps": 96.6
+    },
+    {
+      "clip_name": "test_crowd.mp4",
+      "true_category": "crowd_incident",
+      "detected_category": "suspicious_activity",
+      "all_detected": [
+        "suspicious_activity"
+      ],
+      "result": "FN",
+      "frames": 80,
+      "inference_fps": 97.4
+    },
+    {
+      "clip_name": "test_suspicious.mp4",
+      "true_category": "suspicious_activity",
+      "detected_category": "suspicious_activity",
+      "all_detected": [
+        "suspicious_activity"
+      ],
+      "result": "TP",
+      "frames": 80,
+      "inference_fps": 97.9
+    },
+    {
+      "clip_name": "test_tailgating.mp4",
+      "true_category": "tailgating",
+      "detected_category": "tailgating",
+      "all_detected": [
+        "tailgating"
+      ],
+      "result": "TP",
+      "frames": 80,
+      "inference_fps": 97.6
+    }
+  ]
 }

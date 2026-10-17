@@ -165,16 +165,6 @@
               <svg class="icon-svg icon-svg--sm" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
               <span class="label">Live Webcam</span>
             </button>
-            <button id="zones-toggle" class="control-btn" aria-pressed="false" title="Toggle Detection Zones Overlay (Key: Z)">
-              <svg class="icon-svg" viewBox="0 0 24 24">
-                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-                <polyline points="2 17 12 22 22 17"></polyline>
-                <polyline points="2 12 12 17 22 12"></polyline>
-              </svg>
-              <span class="label">Zones</span>
-              <span class="control-state" id="zones-state">Off</span>
-              <span class="kbd-hint">Z</span>
-            </button>
             <select id="camera-select" class="select" aria-label="Select Camera Stream">
               <option value="cam1" selected>CAM 01 — Main Entrance Turnstile</option>
               <option value="cam2">CAM 02 — Corridor & Stairwell</option>
@@ -188,7 +178,6 @@
         <!-- Video Viewport -->
         <div class="video-viewport" id="viewport">
           <img id="stream" src="/stream/cam1" alt="Live surveillance feed" loading="eager">
-          <canvas id="zone-overlay" class="zone-canvas" aria-hidden="true"></canvas>
 
           <!-- Fallback overlay when stream is connecting -->
           <div class="stream-offline-overlay" id="stream-fallback" aria-hidden="true">
@@ -220,17 +209,6 @@
             </button>
           </div>
 
-          <!-- Active Problem Area Hazard Alert Banner -->
-          <div id="viewport-hazard-alert" class="viewport-hazard-alert" style="display:none;" aria-live="assertive">
-            <span class="hazard-alert-icon">⚠️</span>
-            <span id="viewport-hazard-text">ACTIVE TERRAIN VIOLATION</span>
-          </div>
-        </div>
-
-        <!-- Problem Areas & Dangerous Terrain Status Strip -->
-        <div class="terrain-status-bar" id="terrain-status-bar" aria-label="Camera Problem Areas and Dangerous Terrain Status">
-          <span style="color:var(--text-muted); font-size:0.65rem; text-transform:uppercase; letter-spacing:0.04em;">TERRAIN HAZARDS:</span>
-          <div id="terrain-badges-list" style="display:inline-flex; gap:6px; flex-wrap:wrap;"></div>
         </div>
 
         <!-- NVR Interactive Recording Scrubber Bar -->
@@ -368,14 +346,11 @@
           <button class="filter-btn" data-category="weapons" aria-pressed="false" style="border-color: rgba(244,63,94,0.4); color: #f43f5e;">
             <span class="weapon-dot" style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#f43f5e; margin-right:3px;"></span>Weapons <span class="filter-count" id="count-weapons">0</span>
           </button>
-          <button class="filter-btn" data-category="dangerous_terrain" aria-pressed="false" style="border-color: rgba(234,179,8,0.4); color: #eab308;">
-            ⚠️ Terrain <span class="filter-count" id="count-terrain">0</span>
-          </button>
-          <select id="confidence-filter" class="select" style="min-width: 125px; font-size: 0.72rem; padding: 2px 6px; margin-left: auto;" title="Filter incidents by minimum AI confidence threshold">
-            <option value="0">All Conf (0%+)</option>
-            <option value="0.5" selected>Verified (50%+)</option>
-            <option value="0.7">High Conf (70%+)</option>
-            <option value="0.85">Critical (85%+)</option>
+          <select id="confidence-filter" class="select" style="min-width: 155px; font-size: 0.72rem; padding: 2px 6px; margin-left: auto;" title="Filter incidents by AI verification status">
+            <option value="high" selected>High confidence</option>
+            <option value="verified">All verified</option>
+            <option value="review">Needs review</option>
+            <option value="rejected">Rejected by VLM (developer only)</option>
           </select>
         </div>
 

@@ -89,10 +89,34 @@
     "camera_id": "cam1",
     "category": "suspicious_activity",
     "confidence": 0.92,
-    "summary": "Occupant entered dangerous terrain Atrium Balcony Drop Ledge exceeding safety dwell threshold of 2.0s.",
+    "summary": "Occupant lingered along rooftop perimeter barrier exceeding safety dwell threshold.",
     "keyframe_url": "/frames/8.jpg",
     "track_ids": [174],
-    "tags": ["dangerous_terrain", "fall_hazard", "atrium_balcony_drop_ledge", "osha_violation"],
+    "tags": ["suspicious_activity", "perimeter_breach", "unauthorized_access"],
     "latency_ms": 360
+  },
+  {
+    "id": 9,
+    "timestamp": "2026-10-15T17:15:30",
+    "camera_id": "cam2",
+    "category": "suspicious_activity",
+    "confidence": 0.68,
+    "summary": "Person stood near server room card reader for 8s; lighting and partial occlusion lowered verification confidence.",
+    "keyframe_url": "/frames/4.jpg",
+    "track_ids": [182],
+    "tags": ["suspicious_activity", "needs_review"],
+    "latency_ms": 440
+  },
+  {
+    "id": 10,
+    "timestamp": "2026-10-15T18:02:10",
+    "camera_id": "cam1",
+    "category": "none",
+    "confidence": 0.32,
+    "summary": "[REJECTED BY VLM] False alarm: Shadow from lobby ceiling fan triggered optical flow motion trigger.",
+    "keyframe_url": "/frames/1.jpg",
+    "track_ids": [190],
+    "tags": ["rejected_by_vlm", "developer_only", "false_alarm"],
+    "latency_ms": 280
   }
 ]

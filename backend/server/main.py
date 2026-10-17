@@ -140,6 +140,23 @@ def on_candidate_event(candidate: dict):
     # Drop if VLM classified as "none" (filtering false alarms)
     if vlm_result.get("category") == "none":
         logger.info(f"[Server] VLM filtered event as 'none' (false alarm) from {candidate.get('camera_id')}")
+        latency_ms = int((time.time() - start_t) * 1000)
+        rejected_payload = {
+            "timestamp": candidate.get("timestamp"),
+            "camera_id": candidate.get("camera_id"),
+            "category": "none",
+            "confidence": float(vlm_result.get("confidence", 0.0)),
+            "summary": f"[REJECTED BY VLM] {vlm_result.get('summary', 'False alarm rejected by VLM')}",
+            "keyframe_path": "",
+            "track_ids": candidate.get("track_ids", []),
+            "latency_ms": latency_ms,
+            "tags": ["rejected_by_vlm", "developer_only"],
+        }
+        event_id = db.insert_event(rejected_payload)
+        if event_id and candidate.get("keyframe_bytes"):
+            keyframe_path = str(FRAMES_DIR / f"{event_id}.jpg")
+            Path(keyframe_path).write_bytes(candidate.get("keyframe_bytes"))
+            db.update_keyframe_path(event_id, keyframe_path)
         return
 
     # Drop low-confidence events (noise reduction based on settings.json)
@@ -153,6 +170,23 @@ def on_candidate_event(candidate: dict):
     confidence = vlm_result.get("confidence", 0.0)
     if confidence < min_conf:
         logger.info(f"[Server] Dropped low-confidence event: {vlm_result.get('category')} at {confidence:.0%} < {min_conf:.0%}")
+        latency_ms = int((time.time() - start_t) * 1000)
+        rejected_payload = {
+            "timestamp": candidate.get("timestamp"),
+            "camera_id": candidate.get("camera_id"),
+            "category": "none",
+            "confidence": float(confidence),
+            "summary": f"[REJECTED: LOW CONFIDENCE ({confidence:.0%})] {vlm_result.get('summary', '')}",
+            "keyframe_path": "",
+            "track_ids": candidate.get("track_ids", []),
+            "latency_ms": latency_ms,
+            "tags": ["rejected_by_vlm", "low_confidence", "developer_only"],
+        }
+        event_id = db.insert_event(rejected_payload)
+        if event_id and candidate.get("keyframe_bytes"):
+            keyframe_path = str(FRAMES_DIR / f"{event_id}.jpg")
+            Path(keyframe_path).write_bytes(candidate.get("keyframe_bytes"))
+            db.update_keyframe_path(event_id, keyframe_path)
         return
 
     latency_ms = int((time.time() - start_t) * 1000)
@@ -465,15 +499,54 @@ def get_cameras():
 
 @app.get("/api/cameras/config")
 def get_cameras_config():
-    """Returns all camera definitions from config/cameras.json."""
+    """Returns all camera definitions and confidence thresholds."""
     cam_file = BASE_DIR / "config" / "cameras.json"
+    settings_file = BASE_DIR / "config" / "settings.json"
+    high_threshold = 0.75
+    min_threshold = 0.50
+    if settings_file.exists():
+        try:
+            with open(settings_file, "r", encoding="utf-8") as f:
+                s = json.load(f)
+                ef = s.get("event_filter", {})
+                high_threshold = float(ef.get("high_confidence_threshold", 0.75))
+                min_threshold = float(ef.get("min_confidence", 0.50))
+        except Exception:
+            pass
+
+    cameras = {}
     if cam_file.exists():
         try:
             with open(cam_file, "r", encoding="utf-8") as f:
-                return {"cameras": json.load(f)}
+                cameras = json.load(f)
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-    return {"cameras": {}}
+    return {
+        "cameras": cameras,
+        "high_confidence_threshold": high_threshold,
+        "min_confidence_threshold": min_threshold,
+    }
+
+
+@app.get("/api/config")
+def get_config():
+    """Returns runtime configuration thresholds."""
+    settings_file = BASE_DIR / "config" / "settings.json"
+    high_threshold = 0.75
+    min_threshold = 0.50
+    if settings_file.exists():
+        try:
+            with open(settings_file, "r", encoding="utf-8") as f:
+                s = json.load(f)
+                ef = s.get("event_filter", {})
+                high_threshold = float(ef.get("high_confidence_threshold", 0.75))
+                min_threshold = float(ef.get("min_confidence", 0.50))
+        except Exception:
+            pass
+    return {
+        "high_confidence_threshold": high_threshold,
+        "min_confidence_threshold": min_threshold,
+    }
 
 
 @app.post("/api/cameras")
@@ -500,8 +573,13 @@ def create_camera(req: CameraCreateRequest):
         "hazard_zones": req.hazard_zones or [],
         "crowd_threshold": req.crowd_threshold or 7,
         "tailgating_time_window_seconds": 1.8,
-        "person_down_aspect_ratio_threshold": 0.70,
-        "person_down_still_seconds": 0.8,
+        "person_down_aspect_ratio_threshold": 0.85,
+        "person_down_height_collapse_ratio": 0.60,
+        "person_down_min_upright_frames": 6,
+        "person_down_transition_frames": 4,
+        "person_down_still_seconds": 2.5,
+        "person_down_motion_threshold_ratio": 0.15,
+        "person_down_recovery_aspect_thresh": 0.65,
         "fighting_overlap_iou": 0.38,
         "fighting_speed_threshold_pixels_per_sec": 105.0,
     }

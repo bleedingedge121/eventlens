@@ -39,20 +39,25 @@ class TestTriggers(unittest.TestCase):
         config = {
             "person_down_aspect_ratio_threshold": 0.85,
             "person_down_still_seconds": 1.0,
+            "person_down_min_upright_frames": 3,
+            "person_down_transition_frames": 2,
         }
         engine = TriggerEngine("cam1", config)
 
-        # Frame 1: Person standing (h=140, w=40)
+        # Baseline: Person standing upright (h=140, w=40) for 3 frames to establish baseline
         det_standing = [{"track_id": 1, "box": [100, 100, 140, 240], "confidence": 0.9}]
-        engine.update(det_standing, current_time=0.0)
+        for t in [0.0, 0.1, 0.2]:
+            engine.update(det_standing, current_time=t)
 
-        # Frame 2: Person collapses on floor (h=45, w=90 -> height collapsed < 0.6 of 140)
+        # Transition: Person collapses on floor (h=45, w=90 -> height collapsed < 0.6 of 140)
         det_collapsed = [{"track_id": 1, "box": [100, 195, 190, 240], "confidence": 0.9}]
-        cands1 = engine.update(det_collapsed, current_time=0.5)
-        self.assertEqual(len(cands1), 0)  # Still waiting for still_seconds
+        # 2 frames to satisfy transition_frames
+        engine.update(det_collapsed, current_time=0.3)
+        cands1 = engine.update(det_collapsed, current_time=0.4)
+        self.assertEqual(len(cands1), 0)  # In DOWN_CANDIDATE, still waiting for still_seconds (1.0s)
 
-        # Frame 3: Motionless after 1.1s (0.5 to 1.6)
-        cands2 = engine.update(det_collapsed, current_time=1.6)
+        # Frame after 1.1s (0.4 + 1.1 = 1.5s): Person stays motionless
+        cands2 = engine.update(det_collapsed, current_time=1.5)
         self.assertEqual(len(cands2), 1)
         self.assertEqual(cands2[0]["category_hint"], "person_down")
 

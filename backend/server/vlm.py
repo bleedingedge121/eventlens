@@ -127,8 +127,8 @@ class VLMClient:
         frames_b64 = self._prepare_images(candidate.get("frames", []))
 
         if not frames_b64:
-            logger.warning("[VLM] No frames available for VLM analysis — using rule fallback")
-            return self._make_fallback(category_hint)
+            logger.warning("[VLM] No frames available for VLM analysis — cannot verify")
+            return self._make_unverified_fallback(category_hint, reason="no_frames")
 
         self.is_busy = True
         self.current_hint = category_hint
@@ -184,25 +184,22 @@ class VLMClient:
                         "weapon_detected": parsed.get("weapon_detected", False),
                         "weapon_type": parsed.get("weapon_type", "none"),
                         "tags": tags,
+                        "verified": True,
+                        "verification_status": "vlm_confirmed",
                     }
                 else:
-                    logger.info(f"[VLM] Response parsed via heuristic extraction: {raw_response[:100]}")
-                    tags = list(set(candidate_tags + [category_hint]))
-                    return {
-                        "category": category_hint,
-                        "confidence": 0.70,
-                        "summary": f"{TEMPLATE_SUMMARIES.get(category_hint, 'Activity detected.')} Visual confirmation verified by pipeline.",
-                        "weapon_detected": False,
-                        "weapon_type": "none",
-                        "tags": tags,
-                    }
+                    # Ollama responded but output could not be parsed into a valid category.
+                    # This is NOT verified — do not fabricate a confirmation.
+                    logger.warning(f"[VLM] Response not parseable into valid category: {raw_response[:120]!r}")
+                    return self._make_unverified_fallback(category_hint, reason="parse_failure")
             except urllib.error.URLError as e:
                 logger.error(f"[VLM] Ollama connection failed ({model}): {e}")
             except Exception as e:
                 logger.error(f"[VLM] VLM call failed ({model}): {e}")
 
-            # Defensive Fallback: use rule category hint with moderate confidence
-            return self._make_fallback(category_hint)
+            # Fallback: VLM was reachable but returned unparseable output.
+            # Mark explicitly as unverified — do NOT claim AI confirmation.
+            return self._make_unverified_fallback(category_hint, reason="parse_failure")
         finally:
             self.is_busy = False
             self.current_hint = ""
@@ -214,12 +211,30 @@ class VLMClient:
                 pass
 
     def _make_fallback(self, category_hint: str) -> Dict[str, Any]:
-        """Creates a fallback result when VLM is unavailable."""
+        """Creates a rule-only fallback result when VLM is completely unavailable (Ollama offline)."""
         return {
             "category": category_hint,
             "confidence": 0.55,
-            "summary": f"{TEMPLATE_SUMMARIES.get(category_hint, 'Automated rule triggered event.')} (Motion tracking confirmation).",
+            "summary": f"[RULE TRIGGER — VLM OFFLINE] {TEMPLATE_SUMMARIES.get(category_hint, 'Automated rule triggered event.')} VLM unavailable; not AI-verified.",
             "weapon_detected": False,
+            "verified": False,
+            "verification_status": "vlm_offline",
+        }
+
+    def _make_unverified_fallback(self, category_hint: str, reason: str = "unknown") -> Dict[str, Any]:
+        """Creates an honest unverified result when VLM was reachable but produced no usable output.
+
+        This is DIFFERENT from _make_fallback: here Ollama responded but the output was
+        malformed, a lock timed out, or no frames were available. The distinction matters:
+        a timeout may mean the model IS running but slow, not that the service is down.
+        """
+        return {
+            "category": category_hint,
+            "confidence": 0.55,
+            "summary": f"[RULE TRIGGER — UNVERIFIED ({reason})] {TEMPLATE_SUMMARIES.get(category_hint, 'Automated rule triggered event.')} AI verification failed; review required.",
+            "weapon_detected": False,
+            "verified": False,
+            "verification_status": f"unverified_{reason}",
         }
 
     def _call_ollama(self, prompt: str, images_b64: List[str], model: str = None) -> str:

@@ -95,7 +95,7 @@
 
   // ---- keyboard shortcut help (?) ----------------------------------------
   const SHORTCUTS = [
-    ['/', 'Focus search / query box'], ['1 · 2', 'Switch camera'], ['Z', 'Toggle zone overlay'],
+    ['/', 'Focus search / query box'], ['1 · 2', 'Switch camera'],
     ['M', 'Mute alert audio'], ['F', 'Fullscreen viewport'], ['Esc', 'Close dialog'], ['?', 'This help'],
   ];
   function toggleHelp() {

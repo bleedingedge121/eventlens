@@ -22,7 +22,8 @@
   },
   "event_filter": {
     "min_confidence": 0.50,
-    "notify_above_confidence": 0.65
+    "notify_above_confidence": 0.65,
+    "high_confidence_threshold": 0.75
   },
   "server": {
     "host": "127.0.0.1",
