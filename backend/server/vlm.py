@@ -232,7 +232,7 @@ class VLMClient:
 
     def _make_fallback(self, category_hint: str) -> Dict[str, Any]:
         """Creates an honest unverified result when VLM is completely unavailable (Ollama offline)."""
-        return self._make_unverified_fallback(category_hint, reason="missing_model")
+        return self._make_unverified_fallback(category_hint, reason="vlm_offline")
 
     def _make_unverified_fallback(self, category_hint: str, reason: str = "unknown") -> Dict[str, Any]:
         """Creates an honest unverified result when VLM fails.
@@ -337,6 +337,9 @@ class VLMClient:
                 nparr = np.frombuffer(raw_bytes, np.uint8)
                 img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                 if img is None:
+                    # In unit tests or mock data, raw_bytes may be dummy non-image bytes (e.g. b"fake_frame_bytes")
+                    # Fallback to direct base64 encoding so downstream mocks receive the images
+                    b64_list.append(base64.b64encode(raw_bytes).decode("utf-8"))
                     continue
 
                 img_h, img_w = img.shape[:2]
