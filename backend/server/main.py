@@ -190,6 +190,8 @@ def on_candidate_event(candidate: dict):
         return
 
     latency_ms = int((time.time() - start_t) * 1000)
+    is_verified = bool(vlm_result.get("verified", False))
+    verification_status = vlm_result.get("verification_status", "vlm_confirmed" if is_verified else "unverified")
 
     event_payload = {
         "timestamp": candidate.get("timestamp"),
@@ -201,6 +203,8 @@ def on_candidate_event(candidate: dict):
         "track_ids": candidate.get("track_ids", []),
         "latency_ms": latency_ms,
         "tags": vlm_result.get("tags") or candidate.get("tags", []),
+        "verified": is_verified,
+        "verification_status": verification_status,
     }
 
     event_id = db.insert_event(event_payload)
@@ -257,9 +261,10 @@ def get_events(
     category: Optional[str] = Query(None),
     camera_id: Optional[str] = Query(None),
     since: Optional[str] = Query(None),
+    verified: Optional[bool] = Query(None),
     limit: int = Query(50, le=10000),
 ):
-    events = db.query_events(category=category, camera_id=camera_id, since=since, limit=limit)
+    events = db.query_events(category=category, camera_id=camera_id, since=since, verified=verified, limit=limit)
     return {"events": events}
 
 

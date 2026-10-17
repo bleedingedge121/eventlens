@@ -103,6 +103,54 @@ class TestDatabase(unittest.TestCase):
         self.assertIn("tags", fetched)
         self.assertEqual(fetched["tags"], ["fighting", "weapon_detected", "firearm"])
 
+    def test_verification_status_and_filtering(self):
+        # 1. Verified event
+        id1 = self.db.insert_event({
+            "timestamp": "2026-10-15T15:00:00",
+            "camera_id": "cam1",
+            "category": "tailgating",
+            "confidence": 0.88,
+            "summary": "Verified tailgating.",
+            "verified": True,
+            "verification_status": "vlm_confirmed",
+        })
+
+        # 2. Unverified candidate (VLM failure)
+        id2 = self.db.insert_event({
+            "timestamp": "2026-10-15T15:05:00",
+            "camera_id": "cam1",
+            "category": "person_down",
+            "confidence": 0.55,
+            "summary": "[RULE TRIGGER — UNVERIFIED] Suspected fall.",
+            "verified": False,
+            "verification_status": "unverified_timeout",
+        })
+
+        ev1 = self.db.get_event(id1)
+        self.assertTrue(ev1["verified"])
+        self.assertEqual(ev1["verification_status"], "vlm_confirmed")
+
+        ev2 = self.db.get_event(id2)
+        self.assertFalse(ev2["verified"])
+        self.assertEqual(ev2["verification_status"], "unverified_timeout")
+
+        # Query only verified
+        verified_events = self.db.query_events(verified=True)
+        self.assertEqual(len(verified_events), 1)
+        self.assertEqual(verified_events[0]["id"], id1)
+
+        # Query only unverified
+        unverified_events = self.db.query_events(verified=False)
+        self.assertEqual(len(unverified_events), 1)
+        self.assertEqual(unverified_events[0]["id"], id2)
+
+        # Check stats counts only verified in category counts
+        stats = self.db.get_stats()
+        self.assertEqual(stats["total_events"], 1)
+        self.assertEqual(stats["unverified_candidates"], 1)
+        self.assertEqual(stats["categories"]["tailgating"], 1)
+        self.assertEqual(stats["categories"]["person_down"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

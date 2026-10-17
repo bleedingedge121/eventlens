@@ -75,6 +75,7 @@ class PersonDownState(Enum):
     TRANSITION = auto()     # Posture change in progress; not yet sustained
     DOWN_CANDIDATE = auto() # Prone posture sustained; confirming stillness
     CONFIRMED = auto()      # Candidate emitted; awaiting recovery
+    INTENTIONAL_DOWN = auto() # Intentional controlled lie-down; awaiting recovery without alarm
 
 
 class PersonDownFSM:
@@ -123,6 +124,8 @@ class PersonDownFSM:
         self.still_seconds: float = float(config.get("person_down_still_seconds", 2.5))
         self.motion_thresh_ratio: float = float(config.get("person_down_motion_threshold_ratio", 0.15))
         self.recovery_aspect: float = float(config.get("person_down_recovery_aspect_thresh", 0.65))
+        self.max_fall_transition_seconds: float = float(config.get("person_down_max_fall_transition_seconds", 1.0))
+        self.is_intentional_descent: bool = False
 
         # FSM state
         self.state: PersonDownState = PersonDownState.UNKNOWN
@@ -135,23 +138,39 @@ class PersonDownFSM:
         # Transition tracking
         self._transition_frame_count: int = 0
         self._transition_start_time: Optional[float] = None
+        self._descent_start_time: Optional[float] = None
 
         # Down-candidate tracking (stillness)
         self._down_start_time: Optional[float] = None
         self._down_start_cx: float = 0.0
         self._down_start_cy: float = 0.0
+        self._last_cx: float = 0.0
+        self._last_cy: float = 0.0
         self._down_candidate_start_time: Optional[float] = None
 
+    def inherit_baseline(self, baseline_height: float, upright_frames: int = 6) -> None:
+        """Inherits standing baseline from a previous track at the same location (tracker ID switch resilience)."""
+        self._baseline_height = baseline_height
+        self._upright_heights.append(baseline_height)
+        self._upright_frame_count = max(self.min_upright_frames, upright_frames)
+        self.state = PersonDownState.UPRIGHT
+
     def _is_prone(self, w: float, h: float) -> bool:
-        """Returns True if the current box looks horizontal/prone."""
+        """Returns True if the current box looks horizontal/prone.
+
+        A seated person maintains vertical trunk orientation (w/h < 0.70)
+        and is never classified as prone, even if height decreases.
+        """
         if h <= 0:
             return False
         aspect = w / h
+        # Explicit horizontal posture
         if aspect >= self.aspect_thresh:
             return True
-        # Also check height-collapse relative to upright baseline
+        # Height collapse relative to upright baseline ONLY if aspect is also non-vertical (>= 0.70)
+        # Seated persons have aspect < 0.70 and are NOT prone
         if self._baseline_height > 0:
-            if (h / self._baseline_height) < self.collapse_ratio:
+            if (h / self._baseline_height) < self.collapse_ratio and aspect >= 0.70:
                 return True
         return False
 
@@ -206,37 +225,82 @@ class PersonDownFSM:
             if upright:
                 self._upright_frame_count += 1
                 self._update_baseline(h)
+                if self._baseline_height > 0 and h < self._baseline_height * 0.90:
+                    if self._descent_start_time is None:
+                        self._descent_start_time = timestamp
+                else:
+                    self._descent_start_time = None
                 return False
             if prone:
                 # Posture changed — start transition
                 self.state = PersonDownState.TRANSITION
                 self._transition_frame_count = 1
                 self._transition_start_time = timestamp
-            return False
+                if self._descent_start_time is None:
+                    self._descent_start_time = timestamp
+                self.is_intentional_descent = False
+                return False
+            else:
+                # Intermediate posture (bending / crouching / descending)
+                if self._descent_start_time is None:
+                    self._descent_start_time = timestamp
+                return False
 
         if self.state == PersonDownState.TRANSITION:
             if prone:
                 self._transition_frame_count += 1
+                trans_elapsed = timestamp - (self._descent_start_time or self._transition_start_time or timestamp)
+                # Intentional lying down is slow/gradual descent taking >= max_fall_transition_seconds
+                if trans_elapsed >= (self.max_fall_transition_seconds - 0.05):
+                    self.is_intentional_descent = True
+
                 if self._transition_frame_count >= self.transition_frames:
-                    # Sustained prone posture confirmed — move to candidate stage
-                    self.state = PersonDownState.DOWN_CANDIDATE
-                    self._down_candidate_start_time = timestamp
-                    self._down_start_cx = cx
-                    self._down_start_cy = cy
+                    if self.is_intentional_descent:
+                        # Gradual controlled lying down / stretching / yoga — no alarm, wait for recovery
+                        self.state = PersonDownState.INTENTIONAL_DOWN
+                        self._transition_frame_count = 0
+                        self._descent_start_time = None
+                    else:
+                        # Sustained prone posture confirmed from sudden collapse — move to candidate stage
+                        self.state = PersonDownState.DOWN_CANDIDATE
+                        self._down_candidate_start_time = timestamp
+                        self._down_start_cx = cx
+                        self._down_start_cy = cy
+                        self._last_cx = cx
+                        self._last_cy = cy
             else:
-                # Posture recovered before transition completed — reset
+                # Posture recovered before transition completed (e.g. crouching / bending) — reset
                 if upright:
                     self.state = PersonDownState.UPRIGHT
                     self._upright_frame_count += 1
                     self._update_baseline(h)
+                    self._transition_frame_count = 0
+                    self._descent_start_time = None
                 else:
                     # Ambiguous intermediate posture — stay in TRANSITION but reset counter
                     self._transition_frame_count = max(0, self._transition_frame_count - 1)
                     if self._transition_frame_count == 0:
                         self.state = PersonDownState.UPRIGHT
+                        self._descent_start_time = None
+            return False
+
+        if self.state == PersonDownState.INTENTIONAL_DOWN:
+            # Person intentionally lay down; never alarm; wait for standing recovery
+            if upright:
+                self.state = PersonDownState.UPRIGHT
+                self._upright_frame_count = 1
+                self._update_baseline(h)
+                self._transition_frame_count = 0
+                self._descent_start_time = None
+                self.is_intentional_descent = False
             return False
 
         if self.state == PersonDownState.DOWN_CANDIDATE:
+            if self.is_intentional_descent or (self._descent_start_time and self._down_candidate_start_time and (self._down_candidate_start_time - self._descent_start_time) >= (self.max_fall_transition_seconds - 0.05)):
+                self.state = PersonDownState.INTENTIONAL_DOWN
+                self.is_intentional_descent = True
+                return False
+
             if not prone:
                 if upright:
                     # Person recovered before stillness threshold
@@ -244,12 +308,25 @@ class PersonDownFSM:
                     self._upright_frame_count = 1
                     self._update_baseline(h)
                     self._transition_frame_count = 0
+                    self._descent_start_time = None
                 else:
                     # Ambiguous — keep candidate state but watch
                     pass
                 return False
 
-            # Still prone — check elapsed time and normalized motion
+            # Active movement while prone/bending resets continuous stillness timer
+            step_motion = ((cx - self._last_cx) ** 2 + (cy - self._last_cy) ** 2) ** 0.5
+            norm_step = step_motion / max(self._baseline_height, h, 1.0)
+            if norm_step > 0.08:
+                # Motion detected (e.g. cleaning floor, searching, crawling) -> reset stillness duration
+                self._down_candidate_start_time = timestamp
+                self._down_start_cx = cx
+                self._down_start_cy = cy
+
+            self._last_cx = cx
+            self._last_cy = cy
+
+            # Still prone — check elapsed time and overall drift from candidate position
             elapsed = timestamp - (self._down_candidate_start_time or timestamp)
 
             # Normalized motion: movement relative to the person's own standing height
@@ -311,6 +388,7 @@ class TriggerEngine:
         self.tracks: Dict[int, TrackHistory] = {}
         # Per-track person-down FSMs — keyed by track ID
         self._pd_fsms: Dict[int, PersonDownFSM] = {}
+        self._recent_upright_locations: deque = deque(maxlen=25)  # (timestamp, cx, cy, baseline_h, track_id)
         self.last_door_crossings: deque = deque(maxlen=10)  # stores (track_id, timestamp)
         self.last_trigger_times: Dict[str, float] = {}  # debouncing triggers
         self.cooldown_seconds = 8.0
@@ -332,6 +410,7 @@ class TriggerEngine:
         if self.last_update_time > 0 and (current_time < self.last_update_time - 0.5):
             self.tracks.clear()
             self._pd_fsms.clear()
+            self._recent_upright_locations.clear()
             self.last_door_crossings.clear()
             self.active_zone_occupants.clear()
 
@@ -352,17 +431,33 @@ class TriggerEngine:
                 self.tracks[tid] = TrackHistory(tid)
 
             if tid not in self._pd_fsms:
-                self._pd_fsms[tid] = PersonDownFSM(tid, self.config)
+                fsm = PersonDownFSM(tid, self.config)
+                # Check spatial inheritance from recent upright track at this location
+                for rec_t, rx, ry, r_base, r_tid in reversed(self._recent_upright_locations):
+                    if (current_time - rec_t) <= 3.5:
+                        dist = ((cx - rx) ** 2 + (cy - ry) ** 2) ** 0.5
+                        if dist <= max(r_base * 1.5, 120.0):
+                            fsm.inherit_baseline(r_base)
+                            break
+                self._pd_fsms[tid] = fsm
 
             th = self.tracks[tid]
             th.positions.append((current_time, box, cx, cy))
             th.last_seen = current_time
+
+            # Record upright locations to support smooth handoff across track ID switches
+            cur_fsm = self._pd_fsms[tid]
+            if cur_fsm.state == PersonDownState.UPRIGHT and cur_fsm._baseline_height > 0:
+                self._recent_upright_locations.append((current_time, cx, cy, cur_fsm._baseline_height, tid))
 
         # Remove stale tracks older than 8 seconds; notify their FSMs
         stale = [tid for tid, th in self.tracks.items() if current_time - th.last_seen > 8.0]
         for tid in stale:
             fsm = self._pd_fsms.get(tid)
             if fsm:
+                if fsm._baseline_height > 0 and th.positions:
+                    last_pos = th.positions[-1]
+                    self._recent_upright_locations.append((current_time, last_pos[2], last_pos[3], fsm._baseline_height, tid))
                 fsm.reset_on_track_loss()
                 del self._pd_fsms[tid]
             del self.tracks[tid]

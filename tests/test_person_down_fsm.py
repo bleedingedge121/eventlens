@@ -45,14 +45,14 @@ class TestPersonDownFSM(unittest.TestCase):
         self.assertEqual(len(cands), 0)
 
     def test_sitting_down_and_remaining_seated(self):
-        """A person who sits on a chair maintains aspect ratio < 0.85 and does not collapse < 0.60."""
+        """A person who sits on a chair maintains vertical posture (aspect < 0.70) and must never trigger."""
         engine = TriggerEngine("cam1", self.config)
         # 1. Stand upright first (h=160, w=45 -> aspect=0.28)
         for i in range(5):
             det = [{"track_id": 1, "box": [100, 100, 145, 260], "confidence": 0.95}]
             engine.update(det, current_time=i * 0.1)
 
-        # 2. Sit down on chair (h=110, w=55 -> h/baseline = 110/160 = 0.6875 > 0.60; aspect = 55/110 = 0.50 < 0.85)
+        # 2. Sit down on chair (h=110, w=55 -> h/baseline = 110/160 = 0.6875 > 0.60; aspect = 55/110 = 0.50 < 0.70)
         cands = []
         for i in range(30):
             t = 0.5 + i * 0.2
@@ -60,6 +60,23 @@ class TestPersonDownFSM(unittest.TestCase):
             cands.extend(engine.update(det, current_time=t))
 
         self.assertEqual(len(cands), 0, "Sitting person must not trigger person_down")
+
+    def test_sitting_low_stool_deep_height_collapse_negative(self):
+        """A person sits on a low stool/ground with height collapsing below 0.60 but aspect ratio remaining vertical (0.60 < 0.70)."""
+        engine = TriggerEngine("cam1", self.config)
+        # Baseline standing (h=160, w=45)
+        for i in range(5):
+            det = [{"track_id": 1, "box": [100, 100, 145, 260], "confidence": 0.95}]
+            engine.update(det, current_time=i * 0.1)
+
+        # Deep sitting: h=80 (50% of baseline!), w=48 -> aspect = 48/80 = 0.60 < 0.70 (clearly vertical seated)
+        cands = []
+        for i in range(30):
+            t = 0.5 + i * 0.2
+            det = [{"track_id": 1, "box": [100, 180, 148, 260], "confidence": 0.95}]
+            cands.extend(engine.update(det, current_time=t))
+
+        self.assertEqual(len(cands), 0, "Deep seated person with vertical aspect ratio must NOT trigger person_down")
 
     def test_crouching_or_bending(self):
         """A person crouches temporarily (e.g. tying shoelace) and recovers."""
@@ -84,6 +101,53 @@ class TestPersonDownFSM(unittest.TestCase):
             cands = engine.update(det, current_time=t)
             self.assertEqual(len(cands), 0)
 
+    def test_bending_with_continuous_movement_negative(self):
+        """A person bends over searching/cleaning the floor; active motion prevents stillness trigger."""
+        engine = TriggerEngine("cam1", self.config)
+        # Establish upright baseline
+        for i in range(5):
+            det = [{"track_id": 1, "box": [100, 100, 145, 260], "confidence": 0.95}]
+            engine.update(det, current_time=i * 0.1)
+
+        # Bends over for 6 seconds, moving side to side (cleaning / searching)
+        cands = []
+        for i in range(30):
+            t = 0.6 + i * 0.2
+            offset = (i % 5) * 12  # Moving around on floor > motion threshold
+            det = [{"track_id": 1, "box": [100 + offset, 180, 180 + offset, 260], "confidence": 0.95}]
+            cands.extend(engine.update(det, current_time=t))
+
+        self.assertEqual(len(cands), 0, "Active bending and moving must NOT trigger person_down")
+
+    def test_gradual_intentional_lying_down_negative(self):
+        """A person intentionally lies down in a slow, controlled manner (>2.0s descent) without sudden fall."""
+        engine = TriggerEngine("cam1", self.config)
+        # 1. Upright baseline
+        for i in range(5):
+            det = [{"track_id": 1, "box": [100, 100, 145, 260], "confidence": 0.95}]
+            engine.update(det, current_time=i * 0.1)
+
+        # 2. Slow gradual descent over 2.5 seconds (transition duration > max_fall_transition_seconds=1.8s)
+        # Takes 12 frames at 0.2s each (2.4s) to complete transition
+        for i in range(12):
+            t = 0.6 + i * 0.2
+            prog = i / 12.0
+            # Gradually widen and shorten
+            w = 45 + prog * 75
+            h = 160 - prog * 115
+            det = [{"track_id": 1, "box": [100, 260 - h, 100 + w, 260], "confidence": 0.95}]
+            cands = engine.update(det, current_time=t)
+            self.assertEqual(len(cands), 0)
+
+        # 3. Remains lying down
+        cands = []
+        for i in range(15):
+            t = 3.2 + i * 0.2
+            det = [{"track_id": 1, "box": [100, 215, 220, 260], "confidence": 0.95}]
+            cands.extend(engine.update(det, current_time=t))
+
+        self.assertEqual(len(cands), 0, "Slow intentional lying down must NOT trigger person_down fall alarm")
+
     def test_entering_frame_already_lying_down(self):
         """Someone already lying on the ground when entering camera must not produce confirmed event (insufficient history)."""
         engine = TriggerEngine("cam1", self.config)
@@ -95,6 +159,27 @@ class TestPersonDownFSM(unittest.TestCase):
             cands.extend(engine.update(det, current_time=t))
 
         self.assertEqual(len(cands), 0, "Person entering already prone must not trigger without upright baseline")
+
+    def test_fall_with_track_id_switch_positive(self):
+        """Track 1 is upright and falls; ByteTrack assigns Track 2 to prone person on floor; baseline is inherited and fall confirmed."""
+        engine = TriggerEngine("cam1", self.config)
+
+        # 1. Track 1 stands upright (h=150, w=45)
+        for i in range(5):
+            det = [{"track_id": 1, "box": [100, 100, 145, 250], "confidence": 0.95}]
+            engine.update(det, current_time=i * 0.1)
+
+        # 2. Track 1 is lost as person falls at t=0.6s
+        # 3. Track 2 appears immediately at same location prone (h=35, w=110, aspect=3.14)
+        cands = []
+        for i in range(16):
+            t = 0.7 + i * 0.2
+            det = [{"track_id": 2, "box": [100, 215, 210, 250], "confidence": 0.95}]
+            cands.extend(engine.update(det, current_time=t))
+
+        self.assertEqual(len(cands), 1, "Fall must be confirmed even if ByteTrack switches track IDs")
+        self.assertEqual(cands[0]["category_hint"], "person_down")
+        self.assertEqual(cands[0]["track_ids"], [2])
 
     def test_fall_transition_and_sustained_down(self):
         """Valid fall: upright baseline -> collapse -> transition -> still for >2.0s -> confirmed."""

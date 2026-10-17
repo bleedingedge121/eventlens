@@ -84,8 +84,8 @@ class VLMClient:
             "model": self._available_model or self.model_name,
         }
 
-    def _resolve_model(self) -> str:
-        """Determines which VLM model to use — tries primary, falls back to fallback."""
+    def _resolve_model(self) -> Optional[str]:
+        """Determines which VLM model to use — tries primary, falls back to fallback. Returns None if missing."""
         if self._available_model:
             return self._available_model
 
@@ -104,7 +104,7 @@ class VLMClient:
                     self._available_model = self.fallback_model
                 else:
                     # Try any vision-capable model
-                    vision_keywords = ["gemma3", "llava", "bakllava", "qwen", "moondream", "minicpm"]
+                    vision_keywords = ["qwen", "gemma3", "llava", "bakllava", "moondream", "minicpm"]
                     for m_name in installed:
                         if any(k in m_name.lower() for k in vision_keywords):
                             logger.warning(f"[VLM] Using discovered vision model: {m_name}")
@@ -113,10 +113,10 @@ class VLMClient:
 
                 if not self._available_model:
                     logger.error(f"[VLM] No vision model found! Installed: {installed}")
-                    self._available_model = self.model_name  # Try anyway
+                    return None
         except Exception as e:
             logger.error(f"[VLM] Could not query Ollama models: {e}")
-            self._available_model = self.model_name
+            return None
 
         return self._available_model
 
@@ -124,7 +124,8 @@ class VLMClient:
         """Takes a candidate event dictionary and calls Ollama VLM."""
         category_hint = candidate.get("category_hint", "suspicious_activity")
         camera_id = candidate.get("camera_id", "cam1")
-        frames_b64 = self._prepare_images(candidate.get("frames", []))
+        boxes = candidate.get("boxes", [])
+        frames_b64 = self._prepare_images(candidate.get("frames", []), boxes=boxes, max_dim=768, include_crops=True)
 
         if not frames_b64:
             logger.warning("[VLM] No frames available for VLM analysis — cannot verify")
@@ -142,42 +143,56 @@ class VLMClient:
             pass
 
         try:
+            model = self._resolve_model()
+            if not model:
+                logger.error("[VLM] Vision model not found or Ollama unreachable — failing closed")
+                return self._make_unverified_fallback(category_hint, reason="missing_model")
+
             candidate_tags = candidate.get("tags", [])
             prompt = (
                 f"You are a physical surveillance security AI analyzing CCTV camera {camera_id}.\n"
                 f"Motion tracker flagged potential '{category_hint}'.\n"
-                "Examine the image carefully. Identify what is happening.\n"
+                "Examine the image carefully (and focused crop if provided). Determine if an actual security incident or medical emergency is occurring, or if this is normal routine human activity.\n"
                 "Respond ONLY with a JSON object in this exact format:\n"
-                '{"category": "person_down"|"fighting"|"suspicious_activity"|"tailgating"|"crowd_incident"|"suicide_risk"|"none", '
+                '{"is_incident": true|false, '
+                '"category": "person_down"|"fighting"|"suspicious_activity"|"tailgating"|"crowd_incident"|"suicide_risk"|"none", '
                 '"confidence": 0.85, '
                 '"summary": "2 factual sentences describing what you observe in the scene.", '
                 '"weapon_detected": false, '
                 '"weapon_type": "none"|"firearm"|"bladed"|"blunt", '
                 '"tags": ["' + category_hint + '"]}\n'
-                "Categories:\n"
-                "- person_down: collapsed/lying prone on ground (slip & fall, medical)\n"
-                "- fighting: physical altercation, violent struggle, punches, or brawl\n"
-                "- suspicious_activity: unauthorized loitering or prowling\n"
-                "- tailgating: two people entering consecutively through turnstile/door on one badge\n"
-                "- crowd_incident: dangerously dense crowd or panic surge\n"
-                "- suicide_risk: climbing over railing/balcony/ledge, fall hazard, or hanging at height\n"
-                "- none: normal, calm, routine activity\n"
-                "WEAPON DETECTION: Set weapon_detected to true and weapon_type to firearm/bladed ONLY if a gun, rifle, or knife is clearly visible in hand. Otherwise set false and 'none'.\n"
+                "Decision Rules:\n"
+                "- If no one is lying on the floor, no fight is happening, no panic crowd, or people are walking/dining normally: set is_incident=false and category='none'.\n"
+                "- Only set is_incident=true if you visually confirm a genuine emergency or policy breach.\n"
+                "- person_down: person collapsed or lying prone on the floor.\n"
+                "- fighting: physical altercation, violent struggle, punches, or brawl.\n"
+                "- suspicious_activity: unauthorized prowling, break-in attempt, or climbing.\n"
+                "- tailgating: two people entering consecutively on one badge scan.\n"
+                "- crowd_incident: dangerous panic surge or stampede.\n"
+                "- none: normal, calm, routine activity, people dining, standing, or walking.\n"
+                "WEAPON RECOGNITION: Examine hands and waistlines carefully in the high-resolution crop and scene. Set weapon_detected=true and weapon_type to 'firearm' or 'bladed' ONLY if a gun, rifle, pistol, or knife is clearly held or brandished. If person holds a phone, cup, tool, or empty hands, set weapon_detected=false and weapon_type='none'.\n"
                 "Output JSON now:"
             )
 
-            model = self._resolve_model()
             try:
                 raw_response = self._call_ollama(prompt, frames_b64, model)
+                if not raw_response or not raw_response.strip():
+                    logger.warning("[VLM] Empty response from Ollama — failing closed")
+                    return self._make_unverified_fallback(category_hint, reason="malformed_response")
+
                 parsed = self._parse_json_response(raw_response)
                 if parsed and parsed.get("category") in VALID_CATEGORIES:
+                    is_incident = parsed.get("is_incident", True)
                     cat = parsed["category"]
+                    if not is_incident or cat == "none":
+                        cat = "none"
                     conf = float(parsed.get("confidence", 0.75))
                     summary = str(parsed.get("summary", "")).strip()
                     if not summary or len(summary) < 10:
                         summary = TEMPLATE_SUMMARIES.get(cat, "Event detected by AI vision analysis.")
                     tags = list(set(parsed.get("tags", []) + candidate_tags + [cat]))
                     return {
+                        "is_incident": (cat != "none"),
                         "category": cat,
                         "confidence": max(0.0, min(1.0, conf)),
                         "summary": summary,
@@ -185,21 +200,26 @@ class VLMClient:
                         "weapon_type": parsed.get("weapon_type", "none"),
                         "tags": tags,
                         "verified": True,
-                        "verification_status": "vlm_confirmed",
+                        "verification_status": "vlm_confirmed" if cat != "none" else "vlm_rejected",
                     }
                 else:
                     # Ollama responded but output could not be parsed into a valid category.
-                    # This is NOT verified — do not fabricate a confirmation.
-                    logger.warning(f"[VLM] Response not parseable into valid category: {raw_response[:120]!r}")
-                    return self._make_unverified_fallback(category_hint, reason="parse_failure")
-            except urllib.error.URLError as e:
-                logger.error(f"[VLM] Ollama connection failed ({model}): {e}")
+                    logger.warning(f"[VLM] Response not parseable into valid category: {raw_response[:120]!r} — failing closed")
+                    return self._make_unverified_fallback(category_hint, reason="malformed_response")
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    logger.error(f"[VLM] Ollama model '{model}' not found (404) — failing closed")
+                    return self._make_unverified_fallback(category_hint, reason="missing_model")
+                logger.error(f"[VLM] Ollama HTTP error ({model}): {e} — failing closed")
+                return self._make_unverified_fallback(category_hint, reason="http_error")
+            except (TimeoutError, urllib.error.URLError) as e:
+                is_timeout = isinstance(e, TimeoutError) or isinstance(getattr(e, "reason", None), TimeoutError) or "timed out" in str(e).lower()
+                reason = "timeout" if is_timeout else "connection_error"
+                logger.error(f"[VLM] Ollama connection/timeout failed ({model}): {e} — failing closed")
+                return self._make_unverified_fallback(category_hint, reason=reason)
             except Exception as e:
-                logger.error(f"[VLM] VLM call failed ({model}): {e}")
-
-            # Fallback: VLM was reachable but returned unparseable output.
-            # Mark explicitly as unverified — do NOT claim AI confirmation.
-            return self._make_unverified_fallback(category_hint, reason="parse_failure")
+                logger.error(f"[VLM] VLM call failed ({model}): {e} — failing closed")
+                return self._make_unverified_fallback(category_hint, reason="error")
         finally:
             self.is_busy = False
             self.current_hint = ""
@@ -211,28 +231,22 @@ class VLMClient:
                 pass
 
     def _make_fallback(self, category_hint: str) -> Dict[str, Any]:
-        """Creates a rule-only fallback result when VLM is completely unavailable (Ollama offline)."""
-        return {
-            "category": category_hint,
-            "confidence": 0.55,
-            "summary": f"[RULE TRIGGER — VLM OFFLINE] {TEMPLATE_SUMMARIES.get(category_hint, 'Automated rule triggered event.')} VLM unavailable; not AI-verified.",
-            "weapon_detected": False,
-            "verified": False,
-            "verification_status": "vlm_offline",
-        }
+        """Creates an honest unverified result when VLM is completely unavailable (Ollama offline)."""
+        return self._make_unverified_fallback(category_hint, reason="missing_model")
 
     def _make_unverified_fallback(self, category_hint: str, reason: str = "unknown") -> Dict[str, Any]:
-        """Creates an honest unverified result when VLM was reachable but produced no usable output.
+        """Creates an honest unverified result when VLM fails.
 
-        This is DIFFERENT from _make_fallback: here Ollama responded but the output was
-        malformed, a lock timed out, or no frames were available. The distinction matters:
-        a timeout may mean the model IS running but slow, not that the service is down.
+        FAIL CLOSED: Never marks event as verified or confirmed.
         """
         return {
+            "is_incident": False,
             "category": category_hint,
-            "confidence": 0.55,
-            "summary": f"[RULE TRIGGER — UNVERIFIED ({reason})] {TEMPLATE_SUMMARIES.get(category_hint, 'Automated rule triggered event.')} AI verification failed; review required.",
+            "confidence": 0.40,
+            "summary": f"[UNVERIFIED — {reason.upper()}] Candidate motion trigger for {category_hint}. AI verification failed ({reason}); not a verified incident.",
             "weapon_detected": False,
+            "weapon_type": "none",
+            "tags": [category_hint, "unverified", f"unverified_{reason}"],
             "verified": False,
             "verification_status": f"unverified_{reason}",
         }
@@ -244,7 +258,7 @@ class VLMClient:
         payload = {
             "model": model or self.model_name,
             "prompt": prompt,
-            "images": images_b64[:1],  # Send 1 keyframe for fast, deterministic inference
+            "images": images_b64[:2],  # Send up to 2 images: high-res crop + full-frame scene
             "format": "json",
             "stream": False,
             "keep_alive": -1,  # Keep model permanently hot in GPU VRAM to prevent cold reloads
@@ -265,7 +279,7 @@ class VLMClient:
 
         acquired = self._call_lock.acquire(blocking=True, timeout=8.0)
         if not acquired:
-            logger.warning("[VLM] Inference lock busy — fast-tracking via tracking pipeline confirmation")
+            logger.warning("[VLM] Inference lock busy — failing closed")
             return ""
 
         try:
@@ -283,9 +297,16 @@ class VLMClient:
         finally:
             self._call_lock.release()
 
-    def _prepare_images(self, frames: List[Any]) -> List[str]:
+    def _prepare_images(
+        self,
+        frames: List[Any],
+        boxes: Optional[List[List[float]]] = None,
+        max_dim: int = 768,
+        include_crops: bool = True,
+        quality: int = 85,
+    ) -> List[str]:
         b64_list = []
-        for f in frames:
+        for f in frames[:1]:  # primary keyframe
             try:
                 raw_bytes = None
                 if isinstance(f, bytes):
@@ -295,41 +316,72 @@ class VLMClient:
                     if p.is_file():
                         raw_bytes = p.read_bytes()
                     else:
-                        raw_bytes = base64.b64decode(f)
-                else:
+                        try:
+                            raw_bytes = base64.b64decode(f)
+                        except Exception:
+                            pass
+                elif hasattr(f, "shape"):
                     try:
-                        import numpy as np
-                        if isinstance(f, np.ndarray):
-                            import cv2
-                            _, buf = cv2.imencode(".jpg", f)
-                            raw_bytes = buf.tobytes()
+                        import cv2
+                        _, buf = cv2.imencode(".jpg", f)
+                        raw_bytes = buf.tobytes()
                     except Exception:
                         pass
 
-                if raw_bytes:
-                    import cv2
-                    import numpy as np
+                if not raw_bytes:
+                    continue
 
-                    nparr = np.frombuffer(raw_bytes, np.uint8)
-                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                    if img is not None:
-                        h, w = img.shape[:2]
-                        max_dim = 320
-                        if max(h, w) > max_dim:
-                            scale = max_dim / float(max(h, w))
-                            img = cv2.resize(
-                                img,
-                                (int(w * scale), int(h * scale)),
-                                interpolation=cv2.INTER_AREA,
-                            )
-                        _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 75])
-                        b64_list.append(base64.b64encode(buf.tobytes()).decode("utf-8"))
-                    else:
-                        b64_list.append(base64.b64encode(raw_bytes).decode("utf-8"))
+                import cv2
+                import numpy as np
+
+                nparr = np.frombuffer(raw_bytes, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if img is None:
+                    continue
+
+                img_h, img_w = img.shape[:2]
+
+                # 1. Generate crops for each track box to preserve small object/weapon details
+                if include_crops and boxes:
+                    for box in boxes[:2]:
+                        try:
+                            bx1, by1, bx2, by2 = box
+                            bw = bx2 - bx1
+                            bh = by2 - by1
+                            # Pad box by 30% to capture hands, waistline, and immediate context
+                            pad_x = bw * 0.30
+                            pad_y = bh * 0.30
+                            cx1 = max(0, int(bx1 - pad_x))
+                            cy1 = max(0, int(by1 - pad_y))
+                            cx2 = min(img_w, int(bx2 + pad_x))
+                            cy2 = min(img_h, int(by2 + pad_y))
+                            if (cx2 - cx1) >= 20 and (cy2 - cy1) >= 20:
+                                crop = img[cy1:cy2, cx1:cx2]
+                                ch, cw = crop.shape[:2]
+                                if max(ch, cw) > 512:
+                                    s = 512.0 / max(ch, cw)
+                                    crop = cv2.resize(crop, (int(cw * s), int(ch * s)), interpolation=cv2.INTER_AREA)
+                                _, c_buf = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                                b64_list.append(base64.b64encode(c_buf.tobytes()).decode("utf-8"))
+                        except Exception as e:
+                            logger.warning(f"[VLM] Crop extraction error: {e}")
+
+                # 2. Generate full-scene image with high-resolution scaling (768px)
+                scene_img = img.copy()
+                if max(img_h, img_w) > max_dim:
+                    scale = max_dim / float(max(img_h, img_w))
+                    scene_img = cv2.resize(
+                        scene_img,
+                        (int(img_w * scale), int(img_h * scale)),
+                        interpolation=cv2.INTER_AREA,
+                    )
+                _, buf = cv2.imencode(".jpg", scene_img, [cv2.IMWRITE_JPEG_QUALITY, quality])
+                b64_list.append(base64.b64encode(buf.tobytes()).decode("utf-8"))
             except Exception as e:
-                logger.warning(f"[VLM] Image downscale fallback: {e}")
+                logger.warning(f"[VLM] Image preparation error: {e}")
                 if isinstance(f, bytes):
                     b64_list.append(base64.b64encode(f).decode("utf-8"))
+
         return b64_list
 
     @staticmethod
@@ -354,20 +406,32 @@ class VLMClient:
                 str(d.get("action", ""))
             ).lower()
 
+            # Handle explicit is_incident boolean from model
+            is_incident_val = d.get("is_incident")
+            if is_incident_val is False or is_incident_val == "false" or is_incident_val == 0:
+                cat = "none"
+
             if cat not in VALID_CATEGORIES or not cat:
-                if any(w in text_corpus for w in ["person down", "lying down", "on the ground", "collapsed", "fallen", "prone", "shot down", "casualty", "injured"]):
+                # Check for explicit statements that there is NO emergency / normal activity
+                if any(w in text_corpus for w in [
+                    "not in a panic", "not necessarily in a panic", "no panic",
+                    "normal", "routine", "calm", "peaceful", "no incident",
+                    "no concern", "no one is down", "dining", "eating"
+                ]):
+                    cat = "none"
+                elif any(w in text_corpus for w in ["person down", "lying down", "on the ground", "collapsed", "fallen", "prone", "shot down", "casualty", "injured"]):
                     cat = "person_down"
                 elif any(w in text_corpus for w in ["suicide", "jump from", "balcony ledge", "railing climb", "hanging"]):
                     cat = "suicide_risk"
                 elif any(w in text_corpus for w in ["fight", "brawl", "punch", "kicking", "assault", "struggle", "combat", "altercation", "wrestling"]):
                     cat = "fighting"
-                elif any(w in text_corpus for w in ["gunfight", "shooting", "gun", "firearm", "handgun", "pistol", "rifle", "weapon", "knife", "blade", "armed", "loiter"]):
+                elif any(w in text_corpus for w in ["gunfight", "shooting", "gun", "firearm", "handgun", "pistol", "rifle", "weapon", "knife", "blade", "armed"]):
                     cat = "suspicious_activity"
                 elif any(w in text_corpus for w in ["crowd", "gathering", "dense", "surge", "stampede"]):
                     cat = "crowd_incident"
                 elif any(w in text_corpus for w in ["tailgate", "tailgating", "unauthorized follower", "doorway follower"]):
                     cat = "tailgating"
-                elif any(w in text_corpus for w in ["normal", "routine", "calm", "peaceful", "no incident", "no concern"]):
+                else:
                     cat = "none"
 
             if not cat or cat not in VALID_CATEGORIES:
@@ -514,20 +578,36 @@ class VLMClient:
         if len(clean_text) > 15:
             lower = clean_text.lower()
             detected_cat = None
-            if any(p in lower for p in ["person_down", "person down", "lying down", "on the ground", "collapsed", "fallen", "prone", "unresponsive"]):
+            is_incident = True
+
+            # First check if the model describes normal, non-emergency activity or denies an incident
+            is_benign = any(p in lower for p in [
+                "not necessarily in a panic", "not in a panic", "no panic",
+                "dining normally", "eating normally", "sitting at table",
+                "normal routine", "routine activity", "calm", "peaceful",
+                "no incident", "no concern", "no weapon", "no fight",
+                "no one is down", "nobody collapsed", "interacting normally",
+                "not an emergency", "not a crime", "normal interaction"
+            ])
+
+            if is_benign:
+                detected_cat = "none"
+                is_incident = False
+            elif any(p in lower for p in ["person_down", "person down", "lying down", "on the ground", "collapsed", "fallen prone", "unresponsive on floor"]):
                 detected_cat = "person_down"
             elif any(p in lower for p in ["suicide_risk", "suicide", "ledge", "climbing over railing", "balcony railing", "hanging"]):
                 detected_cat = "suicide_risk"
             elif any(p in lower for p in ["fighting", "physical fight", "brawl", "punching", "altercation", "violent struggle"]):
                 detected_cat = "fighting"
-            elif any(p in lower for p in ["crowd_incident", "crowd", "dense gathering", "stampede", "high density"]):
+            elif any(p in lower for p in ["crowd_incident", "dense gathering", "stampede", "panic surge", "dangerous density"]):
                 detected_cat = "crowd_incident"
             elif any(p in lower for p in ["tailgating", "tailgate", "following closely through door", "unauthorized follower"]):
                 detected_cat = "tailgating"
-            elif any(p in lower for p in ["suspicious_activity", "loitering", "suspicious", "trespassing", "intruder"]):
+            elif any(p in lower for p in ["suspicious_activity", "loitering", "prowling", "trespassing", "intruder"]):
                 detected_cat = "suspicious_activity"
-            elif any(p in lower for p in ["none", "normal", "routine", "calm", "dining normally", "no incident", "no concern"]):
+            elif any(p in lower for p in ["none", "normal", "routine", "calm", "dining"]):
                 detected_cat = "none"
+                is_incident = False
 
             if detected_cat:
                 raw_sentences = [s.strip() for s in re.split(r'[.!?\n]+', clean_text) if len(s.strip()) > 10]
@@ -542,8 +622,9 @@ class VLMClient:
                 summary = ". ".join(content_sentences[:2]) + "." if content_sentences else TEMPLATE_SUMMARIES.get(detected_cat, "Observed activity analyzed by vision model.")
                 summary = re.sub(r'\.\s*\.', '.', summary)
                 return {
+                    "is_incident": is_incident,
                     "category": detected_cat,
-                    "confidence": 0.80,
+                    "confidence": 0.85 if is_incident else 0.95,
                     "summary": summary,
                     "weapon_detected": False,
                 }

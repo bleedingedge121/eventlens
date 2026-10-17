@@ -74,6 +74,14 @@ class Database:
                 cursor.execute("ALTER TABLE events ADD COLUMN tags TEXT DEFAULT '[]'")
             except sqlite3.OperationalError:
                 pass
+            try:
+                cursor.execute("ALTER TABLE events ADD COLUMN verified INTEGER DEFAULT 1")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE events ADD COLUMN verification_status TEXT DEFAULT 'vlm_confirmed'")
+            except sqlite3.OperationalError:
+                pass
             conn.commit()
 
     def insert_event(self, event: Dict[str, Any]) -> int:
@@ -91,6 +99,8 @@ class Database:
             tags_str = str(tags_val)
 
         timestamp = event.get("timestamp") or datetime.now().isoformat(timespec="seconds")
+        verified_val = int(bool(event.get("verified", True)))
+        verification_status_val = str(event.get("verification_status", "vlm_confirmed" if verified_val else "unverified"))
 
         with self._connection() as conn:
             cursor = conn.cursor()
@@ -98,8 +108,8 @@ class Database:
                 """
                 INSERT INTO events (
                     timestamp, camera_id, category, confidence, summary,
-                    keyframe_path, track_ids, latency_ms, tags
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    keyframe_path, track_ids, latency_ms, tags, verified, verification_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     timestamp,
@@ -111,6 +121,8 @@ class Database:
                     track_ids_str,
                     int(event.get("latency_ms", 0)),
                     tags_str,
+                    verified_val,
+                    verification_status_val,
                 ),
             )
             conn.commit()
@@ -147,9 +159,10 @@ class Database:
         category: Optional[str] = None,
         camera_id: Optional[str] = None,
         since: Optional[str] = None,
+        verified: Optional[bool] = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
-        """Filters events based on category, camera, and timestamp."""
+        """Filters events based on category, camera, timestamp, and verification status."""
         query = "SELECT * FROM events WHERE 1=1"
         params: List[Any] = []
 
@@ -162,6 +175,9 @@ class Database:
         if since:
             query += " AND timestamp >= ?"
             params.append(since)
+        if verified is not None:
+            query += " AND verified = ?"
+            params.append(1 if verified else 0)
 
         query += " ORDER BY id DESC LIMIT ?"
         params.append(min(limit, 10000))
@@ -179,11 +195,12 @@ class Database:
         with self._connection() as conn:
             cursor = conn.cursor()
 
-            # Counts per category
+            # Counts per category (only verified events or all events)
             cursor.execute(
                 """
                 SELECT category, COUNT(*) as count
                 FROM events
+                WHERE verified = 1 OR verified IS NULL
                 GROUP BY category
                 """
             )
@@ -191,16 +208,20 @@ class Database:
             for row in cursor.fetchall():
                 counts_by_cat[row["category"]] = row["count"]
 
-            # Events today
+            # Events today (verified)
             cursor.execute(
-                "SELECT COUNT(*) as count FROM events WHERE timestamp LIKE ?",
+                "SELECT COUNT(*) as count FROM events WHERE timestamp LIKE ? AND (verified = 1 OR verified IS NULL)",
                 (f"{today_prefix}%",),
             )
             events_today = cursor.fetchone()["count"]
 
-            # Total events
-            cursor.execute("SELECT COUNT(*) as count FROM events")
+            # Total verified events
+            cursor.execute("SELECT COUNT(*) as count FROM events WHERE verified = 1 OR verified IS NULL")
             total_events = cursor.fetchone()["count"]
+
+            # Total unverified candidates / failures
+            cursor.execute("SELECT COUNT(*) as count FROM events WHERE verified = 0")
+            unverified_candidates = cursor.fetchone()["count"]
 
             # Avg latency
             cursor.execute(
@@ -213,6 +234,7 @@ class Database:
                 "categories": counts_by_cat,
                 "events_today": events_today,
                 "total_events": total_events,
+                "unverified_candidates": unverified_candidates,
                 "avg_latency_ms": avg_latency,
             }
 
@@ -254,6 +276,20 @@ class Database:
             if "[WEAPON" in row["summary"]:
                 tags.append("weapon_detected")
 
+        verified = True
+        try:
+            if "verified" in row.keys() and row["verified"] is not None:
+                verified = bool(row["verified"])
+        except Exception:
+            verified = True
+
+        verification_status = "vlm_confirmed" if verified else "unverified"
+        try:
+            if "verification_status" in row.keys() and row["verification_status"]:
+                verification_status = str(row["verification_status"])
+        except Exception:
+            pass
+
         return {
             "id": row["id"],
             "timestamp": row["timestamp"],
@@ -265,4 +301,6 @@ class Database:
             "track_ids": track_ids,
             "latency_ms": row["latency_ms"],
             "tags": tags,
+            "verified": verified,
+            "verification_status": verification_status,
         }
